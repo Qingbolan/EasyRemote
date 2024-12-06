@@ -1,9 +1,9 @@
-# EasyCompute
+# easyremote
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python Version](https://img.shields.io/pypi/pyversions/easy-compute.svg)](https://pypi.org/project/easy-compute/)
 
-EasyCompute is a powerful and flexible distributed computing framework that enables seamless integration between private network computing resources and public network services. It's designed to help developers easily utilize private network computing power through public network endpoints.
+easyremote is a powerful and flexible distributed computing framework that enables seamless integration between private network computing resources and public network services. It's designed to help developers easily utilize private network computing power through public network endpoints.
 
 ## 🌟 Key Features
 
@@ -192,7 +192,7 @@ pytest tests/test_streaming.py
 
 ## 📚 API Documentation
 
-Detailed API documentation is available at [docs.easycompute.io](https://docs.easycompute.io).
+Detailed API documentation is available at [docs.easyremote.io](https://docs.easyremote.io).
 
 ## 🤝 Contributing
 
