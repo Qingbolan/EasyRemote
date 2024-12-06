@@ -22,6 +22,7 @@ typedef struct { const char *p; ptrdiff_t n; } _GoString_;
 #line 3 "bridge.go"
 
 #include <stdlib.h>
+#include <stdint.h>
 
 #line 1 "cgo-generated-wrapper"
 
@@ -79,8 +80,8 @@ typedef struct { void *data; GoInt len; GoInt cap; } GoSlice;
 extern "C" {
 #endif
 
-extern __declspec(dllexport) char* ProcessData(char* cData, int length, char* cMetadata);
-extern __declspec(dllexport) void FreeString(char* str);
+extern __declspec(dllexport) char* ProcessData(char* cData, size_t length, size_t* outLength);
+extern __declspec(dllexport) void FreeResult(char* ptr);
 
 #ifdef __cplusplus
 }

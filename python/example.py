@@ -1,46 +1,44 @@
-from easyremote.converter import DataConverter
-from easyremote.bridge import Bridge
-import logging
+from easyremote import easyremote
+import numpy as np
+from PIL import Image
 
-# 配置日志
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
+# 处理单个图片
+@easyremote()
+def process_image(image: Image.Image) -> Image.Image:
+    return image.resize((100, 100))
 
-def World(txt):
-    # print(f"{txt} World!")
-    return f"{txt} World!"
+# 处理视频帧
+@easyremote()
+def process_video_frames(frames: np.ndarray):
+    # frames shape: [frames, height, width, channels]
+    for i in range(frames.shape[0]):
+        yield frames[i]  # 逐帧处理
 
-def main():
-    # 初始化 DataConverter 和 Bridge
-    converter = DataConverter()
-    bridge = Bridge()
-    
-    txt = "Hello"
-    
-    # 调用函数获取原始结果
-    original_result = World(txt)
-    logger.debug(f"Original function result: {original_result}")
-    
-    try:
-        # 编码原始结果
-        data, metadata = converter.encode(original_result)
-        logger.debug(f"Encoded data: {data}")
-        logger.debug(f"Metadata: {metadata}")
-        
-        # 处理数据
-        processed_result = bridge.process_data(data, metadata)
-        logger.debug(f"Processed result: {processed_result}")
-        
-        # 解码处理后的结果
-        final_result = converter.decode(
-            processed_result['data'],
-            processed_result['metadata']
-        )
-        print(final_result)
-        logger.info(final_result)
-    
-    except Exception as e:
-        logger.error(f"An error occurred: {str(e)}", exc_info=True)
-        raise
+# 处理复杂数据结构
+@easyremote()
+def process_data(data: dict) -> dict:
+    return {
+        'processed': True,
+        'data': data
+    }
+
+# 使用示例
 if __name__ == '__main__':
-    main()
+    # 图片处理
+    img = Image.open('test.jpg')
+    result = process_image(img)
+    result.save('processed.jpg')
+
+    # 视频处理
+    video = np.random.rand(10, 480, 640, 3)
+    for frame in process_video_frames(video):
+        print(frame.shape)
+
+    # 复杂数据
+    data = {
+        'image': img,
+        'array': np.array([1, 2, 3]),
+        'text': 'hello'
+    }
+    result = process_data(data)
+    print(result)

@@ -1,11 +1,9 @@
-# bridge.py
 import os
 import platform
 import ctypes
 from pathlib import Path
-import json
 import gzip
-from typing import Dict, Any
+from typing import Any
 from .logging_config import logger
 
 class Bridge:
@@ -49,38 +47,11 @@ class Bridge:
         
         try:
             lib = ctypes.WinDLL(str(lib_path)) if system == 'windows' else ctypes.CDLL(str(lib_path))
-            
-            # Log available functions
-            logger.debug("Available functions in library:")
-            for name in dir(lib):
-                if not name.startswith('_'):
-                    logger.debug(f"- {name}")
-                    
             return lib
         except Exception as e:
             logger.error(f"Failed to load library: {e}", exc_info=True)
             raise RuntimeError(f"Failed to load library: {e}")
-
-    def _setup_functions(self):
-        logger.debug("Setting up function signatures")
-        try:
-            # 设置 ProcessData 函数签名
-            self.lib.ProcessData.argtypes = [
-                ctypes.c_char_p,  # data
-                ctypes.c_int,     # length
-                ctypes.c_char_p,  # metadata
-            ]
-            self.lib.ProcessData.restype = ctypes.c_char_p
-
-            # 设置 FreeString 函数签名
-            self.lib.FreeString.argtypes = [ctypes.c_char_p]
-            self.lib.FreeString.restype = None
-            
-            logger.debug("Function signatures setup completed")
-        except Exception as e:
-            logger.error("Failed to setup function signatures", exc_info=True)
-            raise
-
+    
     def _compress_data(self, data: bytes) -> bytes:
         """使用gzip压缩数据"""
         logger.debug(f"Compressing data of size: {len(data)}")
@@ -91,77 +62,81 @@ class Bridge:
         except Exception as e:
             logger.error(f"Compression failed: {str(e)}", exc_info=True)
             raise
-    
-    def process_data(self, data: bytes, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        
+    def _decompress_data(self, data: bytes) -> bytes:
+        """使用gzip解压数据"""
+        logger.debug(f"Decompressing data of size: {len(data)}")
+        try:
+            decompressed = gzip.decompress(data)
+            logger.debug(f"Decompressed size: {len(decompressed)}")
+            return decompressed
+        except Exception as e:
+            logger.error(f"Decompression failed: {str(e)}", exc_info=True)
+            raise
+
+    def _setup_functions(self):
+        logger.debug("Setting up function signatures")
+        try:
+            # 设置 ProcessData 函数签名
+            self.lib.ProcessData.argtypes = [
+                ctypes.POINTER(ctypes.c_char),  # data
+                ctypes.c_size_t,                # length
+                ctypes.POINTER(ctypes.c_size_t),   # outLength
+            ]
+            self.lib.ProcessData.restype = ctypes.POINTER(ctypes.c_char)
+
+            # 设置 FreeResult 函数签名
+            self.lib.FreeResult.argtypes = [ctypes.POINTER(ctypes.c_char)]
+            self.lib.FreeResult.restype = None
+
+            logger.debug("Function signatures setup completed")
+        except Exception as e:
+            logger.error("Failed to setup function signatures", exc_info=True)
+            raise
+
+    def process_data(self, data: bytes) -> bytes:
         logger.debug("Starting process_data")
         logger.debug(f"Original data size: {len(data)}")
-        logger.debug(f"Original metadata: {metadata}")
-        
+
         result_ptr = None
         try:
-            # 构建符合 Go 端要求的完整数据包
-            packet = {
-                "data": data,
-                "metadata": {
-                    "type": metadata["type"] if isinstance(metadata["type"], str) else metadata["type"].value,
-                    "format": metadata.get("format", ""),
-                    "mode": metadata.get("mode", ""),
-                    "size": metadata.get("size", []),
-                    "shape": metadata.get("shape", []),
-                    "dtype": metadata.get("dtype", ""),
-                    "channels": metadata.get("channels", 0),
-                    "extra": metadata.get("extra", {})
-                }
-            }
-            
-            logger.debug(f"Prepared packet metadata: {packet['metadata']}")
-            
             # 压缩数据
             compressed_data = self._compress_data(data)
             logger.debug(f"Compressed data size: {len(compressed_data)}")
-            
+
             # 准备参数
-            logger.debug("Preparing parameters")
-            data_bytes = ctypes.create_string_buffer(compressed_data)
-            data_len = ctypes.c_int(len(compressed_data))
-            
-            # 准备metadata JSON字符串
-            metadata_json = json.dumps(packet["metadata"])
-            logger.debug(f"Metadata JSON: {metadata_json}")
-            metadata_bytes = ctypes.create_string_buffer(metadata_json.encode('utf-8'))
-            
+            data_bytes = (ctypes.c_char * len(compressed_data)).from_buffer_copy(compressed_data)
+            data_len = ctypes.c_size_t(len(compressed_data))
+            out_length = ctypes.c_size_t()
+
             logger.debug("Calling ProcessData function")
             # 调用Go函数
             result_ptr = self.lib.ProcessData(
                 data_bytes,
                 data_len,
-                metadata_bytes
+                ctypes.byref(out_length),
             )
-            
+
             if not result_ptr:
                 logger.error("ProcessData returned NULL")
                 raise RuntimeError("ProcessData returned NULL")
 
-            # 解析结果
-            logger.debug("Parsing result")
-            result_str = ctypes.string_at(result_ptr).decode('utf-8')
-            logger.debug(f"Raw result from ProcessData: {result_str}")
-            
-            try:
-                result = json.loads(result_str)
-                logger.debug(f"Parsed result: {result}")
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse result JSON: {str(e)}")
-                raise RuntimeError(f"Invalid JSON response: {result_str}")
+            total_length = out_length.value
+            logger.debug(f"Out length value: {total_length}")
 
-            # 检查错误
-            if "error" in result:
-                logger.error(f"ProcessData returned error: {result['error']}")
-                raise RuntimeError(result["error"])
+            if total_length <= 0:
+                logger.error(f"Invalid total_length received: {total_length}")
+                raise ValueError(f"Invalid total_length received: {total_length}")
 
-            logger.debug("Process completed successfully")
-            return result
-            
+            result_data = ctypes.string_at(result_ptr, total_length)
+            logger.debug(f"Result data length: {len(result_data)}")
+
+            # 解压缩数据
+            decompressed_data = self._decompress_data(result_data)
+            logger.debug(f"Decompressed result data size: {len(decompressed_data)}")
+
+            return decompressed_data
+
         except Exception as e:
             logger.error(f"Error in process_data: {str(e)}", exc_info=True)
             raise
@@ -170,8 +145,6 @@ class Bridge:
             if result_ptr:
                 logger.debug("Cleaning up memory")
                 try:
-                    self.lib.FreeString(result_ptr)
+                    self.lib.FreeResult(result_ptr)
                 except Exception as e:
                     logger.error(f"Error in memory cleanup: {str(e)}", exc_info=True)
-                    
-                    

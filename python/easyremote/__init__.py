@@ -1,4 +1,4 @@
 from .decorator import easyremote
-from .converter import DataType, DataConverter
+from .converter import DataConverter
 
-__all__ = ['easyremote', 'DataType', 'DataConverter']
+__all__ = ['easyremote', 'DataConverter']
