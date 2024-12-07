@@ -1,0 +1,57 @@
+// easyremote/protos/service.proto
+syntax = "proto3";
+
+package easyremote;
+
+message FunctionSpec {
+    string name = 1;
+    bool is_async = 2;
+    bool is_generator = 3;
+}
+
+message RegisterRequest {
+    string node_id = 1;
+    repeated FunctionSpec functions = 2;
+}
+
+message RegisterResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message CallRequest {
+    string node_id = 1;
+    string function_name = 2;
+    bytes args = 3;
+    bytes kwargs = 4;
+}
+
+message CallResponse {
+    bytes result = 1;
+    bool has_error = 2;
+    string error_message = 3;
+}
+
+message StreamChunk {
+    bytes data = 1;
+    bool has_error = 2;
+    string error_message = 3;
+    bool is_done = 4;
+}
+
+message HeartbeatRequest {
+    string node_id = 1;
+}
+
+message HeartbeatResponse {
+    bool accepted = 1;
+}
+
+service RemoteService {
+    rpc Register(RegisterRequest) returns (RegisterResponse);
+    
+    rpc Call(CallRequest) returns (CallResponse);
+    rpc StreamingCall(CallRequest) returns (stream StreamChunk);
+    
+    rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+}
