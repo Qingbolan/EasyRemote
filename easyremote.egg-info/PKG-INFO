@@ -1,3 +1,16 @@
+Metadata-Version: 2.1
+Name: easyremote
+Version: 0.1.0
+Summary: Easy remote function execution framework
+Author-email: Your Name <your.email@example.com>
+Project-URL: Homepage, https://github.com/Qingbolan/easyremote
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.7
+Description-Content-Type: text/markdown
+License-File: LICENSE
+
 # EasyRemote
 
 EasyRemote is a Python framework that makes it easy to execute functions remotely through a public VPS server. It's designed for scenarios where you want to expose local compute resources (like AI models) through a public endpoint.

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ML Service Demo</title>
+    <script>
+        async function analyzeSentiment() {
+            const text = document.getElementById('text').value;
+            const response = await fetch('/sentiment', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ text })
+            });
+            const result = await response.json();
+            document.getElementById('sentiment-result').textContent = 
+                `Label: ${result.label}, Score: ${result.score}`;
+        }
+
+        function generateText() {
+            const prompt = document.getElementById('prompt').value;
+            const output = document.getElementById('generation-result');
+            output.textContent = '';
+
+            const eventSource = new EventSource(`/generate?prompt=${encodeURIComponent(prompt)}`);
+
+            eventSource.onmessage = function(event) {
+                output.textContent += event.data;
+            };
+
+            eventSource.onerror = function() {
+                eventSource.close();
+            };
+        }
+    </script>
+</head>
+<body>
+    <h2>Sentiment Analysis</h2>
+    <input type="text" id="text" placeholder="Enter text...">
+    <button onclick="analyzeSentiment()">Analyze</button>
+    <div id="sentiment-result"></div>
+
+    <h2>Text Generation</h2>
+    <input type="text" id="prompt" placeholder="Enter prompt...">
+    <button onclick="generateText()">Generate</button>
+    <div id="generation-result"></div>
+</body>
+</html>
