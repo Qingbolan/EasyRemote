@@ -3,7 +3,7 @@
 
 <div align="center">
 
-![EasyRemote Logo](https://raw.githubusercontent.com/Qingbolan/EasyRemote/master/docs/logo.png)
+![EasyRemote Logo](https://raw.githubusercontent.com/Qingbolan/EasyRemote/master/docs/easyremote-logo.png)
 
 [![PyPI version](https://badge.fury.io/py/easyremote.svg)](https://badge.fury.io/py/easyremote)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
