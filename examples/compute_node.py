@@ -1,60 +1,53 @@
-# compute_node_example.py
-
-import asyncio
-import time
-from typing import Generator, AsyncGenerator
-
+# compute_node.py
 from easyremote import ComputeNode
+import asyncio
+import json
+from PIL import Image
+import io
 
-# 初始化 ComputeNode，连接到 VPS 服务器
-# 在测试中，我们假设服务器运行在 127.0.0.1:8080
-node = ComputeNode(vps_address="127.0.0.1:8080")
+# 初始化 ComputeNode
+node = ComputeNode(
+    vps_address="127.0.0.1:8080",
+    node_id="basic-compute"
+)
 
-# 注册一个同步函数
-@node.register(stream=False, async_func=False)
+@node.register
+def add(a: int, b: int) -> int:
+    """计算两个整数的和。"""
+    print("执行 /add")
+    return a + b
+
+@node.register
 def process_data(data: dict) -> dict:
-    """
-    简单的同步函数，通过将 'value' 字段的值加倍来处理数据。
-    """
-    print(f"Processing data synchronously: {data}")
-    result = {"result": data["value"] * 2}
-    return result
+    """处理数据，将每个值乘以2。"""
+    print("执行 /process")
+    return {k: v * 2 for k, v in data.items()}
 
-# 注册一个异步函数
-@node.register(stream=False, async_func=True)
-async def async_process_data(data: dict) -> dict:
+@node.register
+def process_photo(photo_bytes: bytes) -> bytes:
     """
-    异步函数，通过将 'value' 字段的值乘以三来处理数据，模拟异步操作。
-    """
-    print(f"Processing data asynchronously: {data}")
-    await asyncio.sleep(1)  # 模拟异步处理延迟
-    result = {"result": data["value"] * 3}
-    return result
+    处理照片，将其转换为灰度图像。
 
-# 注册一个同步生成器函数（流式）
-@node.register(stream=True, async_func=False)
-def stream_process(data: list) -> Generator[dict, None, None]:
-    """
-    同步生成器函数，逐步处理数据列表中的每个项，并返回处理后的数据块。
-    """
-    print(f"Processing data in stream synchronously: {data}")
-    for item in data:
-        processed = {"processed": item * 2}
-        yield processed
-        time.sleep(0.5)  # 模拟处理延迟
+    Args:
+        photo_bytes (bytes): 原始照片的字节数据。
 
-# 注册一个异步生成器函数（流式异步）
-@node.register(stream=True, async_func=True)
-async def async_stream_process(data: list) -> AsyncGenerator[dict, None]:
+    Returns:
+        bytes: 处理后的灰度照片的字节数据。
     """
-    异步生成器函数，逐步异步处理数据列表中的每个项，并返回处理后的数据块。
-    """
-    print(f"Processing data in stream asynchronously: {data}")
-    for item in data:
-        await asyncio.sleep(0.5)  # 模拟异步处理延迟
-        processed = {"processed": item * 3}
-        yield processed
+    print("执行 /process_photo")
+    try:
+        # 从字节数据中打开图像
+        image = Image.open(io.BytesIO(photo_bytes))
+        # 转换为灰度图像
+        grayscale = image.convert("L")
+        # 将处理后的图像保存到字节流
+        output = io.BytesIO()
+        grayscale.save(output, format='PNG')  # 保持原格式或选择其他格式
+        return output.getvalue()
+    except Exception as e:
+        print(f"处理照片时出错: {e}")
+        raise e
 
 if __name__ == "__main__":
-    # 启动计算节点。blocking=True 会阻塞主线程，保持节点运行。
-    node.serve(blocking=True)
+    print("启动 Compute Node...")
+    node.serve()

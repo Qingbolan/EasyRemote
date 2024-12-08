@@ -10,7 +10,7 @@ def test_basic_functions():
     print("Add result:", response.json())
     
     # 测试数据处理
-    data = {"x": 10, "y": 20}
+    data = {"x": 10, "y": 1000}
     response = requests.post(
         "http://127.0.0.1:8000/process",
         json=data
@@ -20,7 +20,7 @@ def test_basic_functions():
     # 测试流式生成
     response = requests.get(
         "http://127.0.0.1:8000/generate",
-        params={"start": 0, "count": 5},
+        params={"start": 0, "count": 5000},
         stream=True
     )
     

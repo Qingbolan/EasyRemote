@@ -35,7 +35,7 @@ class ComputeNode:
         """
         logger.debug(f"Initializing ComputeNode with VPS address: {vps_address}")
         self.vps_address = vps_address
-        self.node_id = node_id or f"node-{id(self)}"
+        self.node_id = node_id or f"node-{uuid.uuid4()}"
         self.reconnect_interval = reconnect_interval
         self.heartbeat_interval = heartbeat_interval
         self.max_retry_attempts = max_retry_attempts
@@ -92,7 +92,7 @@ class ComputeNode:
         
         def _serve():
             try:
-                # Create and set event loop for this thread
+                # 创建并设置此线程的事件循环
                 self._loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(self._loop)
                 
@@ -106,7 +106,7 @@ class ComputeNode:
                             logger.info(f"Reconnecting in {self.reconnect_interval} seconds...")
                             time.sleep(self.reconnect_interval)
             finally:
-                # Clean up
+                # 清理
                 if self._loop and self._running:
                     pending = asyncio.all_tasks(self._loop)
                     for task in pending:
@@ -233,9 +233,9 @@ class ComputeNode:
         
         try:
             if func_info.is_generator:
-                # Handle generator function
+                # 处理生成器函数
                 if func_info.is_async:
-                    # Async generator
+                    # 异步生成器
                     async for item in func_info.callable(*args, **kwargs):
                         await stream.write(service_pb2.ControlMessage(exec_res=service_pb2.ExecutionResult(
                             call_id=call_id,
@@ -243,26 +243,39 @@ class ComputeNode:
                             chunk=serialize_result(item)
                         )))
                 else:
-                    # Sync generator
+                    # 同步生成器
                     gen = func_info.callable(*args, **kwargs)
+                    
                     while True:
                         try:
-                            item = await self._loop.run_in_executor(self._executor, next, gen)
+                            # 直接使用 next(gen) 并捕获 StopIteration
+                            item = await self._loop.run_in_executor(self._executor, lambda: next(gen))
                             await stream.write(service_pb2.ControlMessage(exec_res=service_pb2.ExecutionResult(
                                 call_id=call_id,
                                 has_error=False,
                                 chunk=serialize_result(item)
                             )))
                         except StopIteration:
+                            # 生成器耗尽，发送完成消息并退出循环
+                            logger.debug(f"Generator {function_name} exhausted")
                             break
-                
-                # Send completion message
+                        except Exception as e:
+                            # 处理生成器中的其他异常
+                            logger.error(f"Error in generator {function_name}: {e}", exc_info=True)
+                            await stream.write(service_pb2.ControlMessage(exec_res=service_pb2.ExecutionResult(
+                                call_id=call_id,
+                                has_error=True,
+                                error_message=str(e)
+                            )))
+                            break
+                    
+                # 发送完成消息
                 await stream.write(service_pb2.ControlMessage(exec_res=service_pb2.ExecutionResult(
                     call_id=call_id,
                     is_done=True
                 )))
             else:
-                # Handle regular function
+                # 处理普通函数
                 if func_info.is_async:
                     result = await func_info.callable(*args, **kwargs)
                 else:
@@ -304,13 +317,16 @@ class ComputeNode:
                         pass
             
             future = asyncio.run_coroutine_threadsafe(cleanup(), self._loop)
-            future.result(timeout=5)
+            try:
+                future.result(timeout=5)
+            except Exception as e:
+                logger.error(f"Error during cleanup: {e}")
         
         self._executor.shutdown(wait=False)
         logger.info("Node stopped")
 
 if __name__ == "__main__":
-    # Example usage
+    # 示例用法
     node = ComputeNode("localhost:8080", node_id="basic-compute")
     
     @node.register
@@ -320,6 +336,13 @@ if __name__ == "__main__":
     @node.register
     def process_data(data: dict) -> dict:
         return {k: v * 2 for k, v in data.items()}
+    
+    @node.register
+    def stream_process(data_range) -> Any:
+        """同步生成器示例函数"""
+        for item in data_range:
+            time.sleep(1)  # 模拟耗时操作
+            yield item * 2
     
     try:
         node.serve(blocking=True)

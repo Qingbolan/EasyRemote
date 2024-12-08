@@ -1,84 +1,82 @@
-# vps_server_example.py
-
-from flask import Flask, request, jsonify
+# server.py
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from easyremote import Server, remote
+from fastapi.responses import Response
+import json
+from contextlib import asynccontextmanager
 
-app = Flask(__name__)
-server = Server(port=8080)  # 初始化服务器，监听 8080 端口
-
-# 注册一个远程同步函数
-@remote()
-def process_data(data: dict) -> dict:
-    """这实际上会在计算节点上执行"""
-    pass  # 该函数的实现由计算节点处理
-
-# 注册一个远程异步函数
-@remote(async_func=True)
-async def async_process_data(data: dict) -> dict:
-    """这实际上会在计算节点上执行"""
-    pass  # 该函数的实现由计算节点处理
-
-# 注册一个远程同步生成器函数（流式）
-@remote(stream=True)
-def stream_process(data: list) -> list:
-    """这实际上会在计算节点上执行"""
-    pass  # 该函数的实现由计算节点处理
-
-# 注册一个远程异步生成器函数（流式异步）
-@remote(stream=True, async_func=True)
-async def async_stream_process(data: list) -> list:
-    """这实际上会在计算节点上执行"""
-    pass  # 该函数的实现由计算节点处理
-
-@app.route('/process', methods=['POST'])
-def process():
-    """
-    端点调用远程同步函数。
-    期望 JSON 负载包含 'value' 键。
-    """
-    data = request.json
-    result = process_data(data)
-    return jsonify(result)
-
-@app.route('/async_process', methods=['POST'])
-async def async_proc():
-    """
-    端点调用远程异步函数。
-    期望 JSON 负载包含 'value' 键。
-    """
-    data = request.json
-    result = await async_process_data(data)
-    return jsonify(result)
-
-@app.route('/stream_process', methods=['POST'])
-def stream_proc():
-    """
-    端点调用远程同步生成器函数（流式）。
-    期望 JSON 负载包含 'data' 键（列表）。
-    返回处理后的数据块列表。
-    """
-    data = request.json.get('data', [])
-    result_gen = stream_process(data)
-    # 将生成器转换为列表
-    return jsonify(list(result_gen))
-
-@app.route('/async_stream_process', methods=['POST'])
-async def async_stream_proc():
-    """
-    端点调用远程异步生成器函数（流式异步）。
-    期望 JSON 负载包含 'data' 键（列表）。
-    返回处理后的数据块列表。
-    """
-    data = request.json.get('data', [])
-    result_gen = async_stream_process(data)
-    # 异步收集生成器中的所有数据块
-    result = []
-    async for item in result_gen:
-        result.append(item)
-    return jsonify(result)
-
-if __name__ == '__main__':
-    # 启动服务器在后台运行
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """生命周期事件处理程序，用于启动和关闭 easyremote 服务器。"""
+    # 启动 easyremote 服务器
+    server = Server(port=8080)
     server.start_background()
-    # 运行 Flask 应用
-    app.run(host='0.0.0.0', port=5000)
+    print("EasyRemote 服务器已在后台启动。")
+    try:
+        yield
+    finally:
+        # 在应用关闭时，执行必要的清理操作
+        server.stop()  # 假设 easyremote 提供 stop 方法
+        print("EasyRemote 服务器已停止。")
+
+app = FastAPI(lifespan=lifespan)
+
+# 注册远程函数，无需实现，计算节点会处理
+@remote(node_id="basic-compute")
+def add(a: int, b: int) -> int:
+    pass
+
+@remote(node_id="basic-compute")
+def process_data(data: dict) -> dict:
+    pass
+
+@remote(node_id="basic-compute")
+def process_photo(photo_bytes: bytes) -> bytes:
+    pass
+
+@app.post("/add")
+async def add_endpoint(a: int, b: int):
+    """处理 /add 请求，返回两个数的和。"""
+    print("收到 /add 请求")
+    try:
+        result = add(a, b)
+        return {"result": result}
+    except Exception as e:
+        print(f"/add 处理时出错: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/process")
+async def process_endpoint(data: dict):
+    """处理 /process 请求，返回处理后的数据。"""
+    print("收到 /process 请求")
+    try:
+        result = process_data(data)
+        return result
+    except Exception as e:
+        print(f"/process 处理时出错: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/process_photo")
+async def process_photo_endpoint(file: UploadFile = File(...)):
+    """处理 /process_photo 请求，上传并处理照片。"""
+    print("收到 /process_photo 请求")
+    if file.content_type not in ["image/jpeg", "image/png"]:
+        raise HTTPException(status_code=400, detail="无效的图片格式。仅支持 JPEG 和 PNG。")
+    
+    try:
+        photo_bytes = await file.read()
+        processed_bytes = process_photo(photo_bytes)
+        return Response(content=processed_bytes, media_type=file.content_type)
+    except Exception as e:
+        print(f"/process_photo 处理时出错: {e}")
+        raise HTTPException(status_code=500, detail="照片处理失败。")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        app, 
+        host="0.0.0.0", 
+        port=8000,
+        loop="asyncio",  # 明确指定使用 asyncio 事件循环
+        timeout_keep_alive=65  # 增加 keep-alive 超时时间
+    )

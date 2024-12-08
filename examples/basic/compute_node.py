@@ -1,6 +1,7 @@
 # examples/basic/compute_node.py
 from easyremote import ComputeNode
 import asyncio
+import time
 
 node = ComputeNode(
     vps_address="127.0.0.1:8080",
@@ -17,11 +18,20 @@ def process_data(data: dict) -> dict:
     print("/process")
     return {k: v * 2 for k, v in data.items()}
 
+import json
+
+# 注册一个同步生成器函数（流式）
 @node.register(stream=True, async_func=True)
-async def generate_numbers(start: int, count: int):
-    for i in range(start, start + count):
-        await asyncio.sleep(0.1)  # 异步等待
-        yield i
+async def stream_process(data: list):
+    """
+    异步生成器函数，逐步处理数据列表中的每个项，并返回处理后的数据块。
+    使用asyncio.sleep()代替time.sleep()以避免阻塞。
+    """
+    print(f"Processing data in stream asynchronously: {data}")
+    for item in data:
+        processed = {"processed": item * 2}
+        yield json.dumps(processed)
+        await asyncio.sleep(0.5)  # 使用异步睡眠
 
 if __name__ == "__main__":
     node.serve()

@@ -3,11 +3,12 @@ import asyncio
 import time
 import grpc
 from concurrent import futures
-import logging
-from typing import Dict, Optional
+from typing import Dict
 from datetime import datetime, timedelta
 import uuid
-import queue
+import asyncio
+
+_SENTINEL = object()
 
 from .types import NodeInfo, FunctionInfo
 from .exceptions import (
@@ -143,79 +144,82 @@ class Server(service_pb2_grpc.RemoteServiceServicer):
             asyncio.run_coroutine_threadsafe(self.stop(), self._loop).result(timeout=5)
 
     async def ControlStream(self, request_iterator, context):
-        """处理与计算节点的双向流通信"""
         node_id = None
         out_queue = asyncio.Queue()
 
-        async def send_responses():
+        async def read_requests():
+            nonlocal node_id
             try:
-                while True:
-                    msg = await out_queue.get()
-                    if msg is None:
-                        break
-                    yield msg
-            except asyncio.CancelledError:
-                logger.debug("Send response task cancelled")
+                async for msg in request_iterator:
+                    if msg.HasField("register_req"):
+                        node_id = msg.register_req.node_id
+                        functions = {}
+                        for f in msg.register_req.functions:
+                            functions[f.name] = FunctionInfo(
+                                name=f.name,
+                                callable=None,
+                                is_async=f.is_async,
+                                is_generator=f.is_generator,
+                                node_id=node_id
+                            )
+
+                        self._nodes[node_id] = NodeInfo(
+                            node_id=node_id,
+                            functions=functions,
+                            last_heartbeat=datetime.now()
+                        )
+                        self._node_queues[node_id] = out_queue
+                        logger.info(f"Node {node_id} registered with functions: {list(functions.keys())}")
+
+                        await out_queue.put(service_pb2.ControlMessage(
+                            register_resp=service_pb2.RegisterResponse(
+                                success=True,
+                                message="Registered successfully"
+                            )
+                        ))
+
+                    elif msg.HasField("heartbeat_req"):
+                        req = msg.heartbeat_req
+                        if req.node_id in self._nodes:
+                            self._nodes[req.node_id].last_heartbeat = datetime.now()
+                            await out_queue.put(service_pb2.ControlMessage(
+                                heartbeat_resp=service_pb2.HeartbeatResponse(accepted=True)
+                            ))
+                        else:
+                            await out_queue.put(service_pb2.ControlMessage(
+                                heartbeat_resp=service_pb2.HeartbeatResponse(accepted=False)
+                            ))
+
+                    elif msg.HasField("exec_res"):
+                        res = msg.exec_res
+                        await self._handle_execution_result(res)
+
+            except Exception as e:
+                logger.error(f"Error in ControlStream: {e}", exc_info=True)
             finally:
-                if node_id in self._node_queues:
+                # 当客户端断开或请求结束时进行清理
+                if node_id and node_id in self._nodes:
+                    logger.info(f"Node {node_id} disconnected")
+                    self._nodes.pop(node_id, None)
                     self._node_queues.pop(node_id, None)
+                
+                # 向输出队列发送None表示数据流结束
+                await out_queue.put(None)
 
-        send_task = asyncio.create_task(send_responses())
+        # 后台任务：处理请求并将响应放入队列中
+        reader_task = asyncio.create_task(read_requests())
 
+        # 在此处直接使用 async for 或 while 循环从 out_queue 中拿消息并 yield
         try:
-            async for msg in request_iterator:
-                if msg.HasField("register_req"):
-                    node_id = msg.register_req.node_id
-                    functions = {}
-                    for f in msg.register_req.functions:
-                        functions[f.name] = FunctionInfo(
-                            name=f.name,
-                            callable=None,
-                            is_async=f.is_async,
-                            is_generator=f.is_generator,
-                            node_id=node_id
-                        )
-                    self._nodes[node_id] = NodeInfo(
-                        node_id=node_id,
-                        functions=functions,
-                        last_heartbeat=datetime.now()
-                    )
-                    self._node_queues[node_id] = out_queue
-                    logger.info(f"Node {node_id} registered with functions: {list(functions.keys())}")
-                    
-                    await out_queue.put(service_pb2.ControlMessage(
-                        register_resp=service_pb2.RegisterResponse(
-                            success=True,
-                            message="Registered successfully"
-                        )
-                    ))
-
-                elif msg.HasField("heartbeat_req"):
-                    req = msg.heartbeat_req
-                    if req.node_id in self._nodes:
-                        self._nodes[req.node_id].last_heartbeat = datetime.now()
-                        await out_queue.put(service_pb2.ControlMessage(
-                            heartbeat_resp=service_pb2.HeartbeatResponse(accepted=True)
-                        ))
-                    else:
-                        await out_queue.put(service_pb2.ControlMessage(
-                            heartbeat_resp=service_pb2.HeartbeatResponse(accepted=False)
-                        ))
-
-                elif msg.HasField("exec_res"):
-                    res = msg.exec_res
-                    await self._handle_execution_result(res)
-
-        except Exception as e:
-            logger.error(f"Error in ControlStream: {e}")
+            while True:
+                msg = await out_queue.get()
+                if msg is None:
+                    # None表示数据发送完成
+                    break
+                yield msg
         finally:
-            if node_id and node_id in self._nodes:
-                logger.info(f"Node {node_id} disconnected")
-                self._nodes.pop(node_id, None)
-                self._node_queues.pop(node_id, None)
-            
-            await out_queue.put(None)
-            await send_task
+            # 确保后台任务结束
+            await reader_task
 
     async def _handle_execution_result(self, res):
         """处理执行结果"""
@@ -237,7 +241,7 @@ class Server(service_pb2_grpc.RemoteServiceServicer):
                     if res.chunk:
                         q.put_nowait(res.chunk)
                     if res.is_done:
-                        q.put_nowait(None)
+                        q.put_nowait(_SENTINEL)
                         self._pending_calls.pop(call_id, None)
 
     def execute_function(self, node_id: str, function_name: str, *args, **kwargs):
@@ -263,12 +267,16 @@ class Server(service_pb2_grpc.RemoteServiceServicer):
                 self._request_execution(node_id, call_id, function_name, args_bytes, kwargs_bytes, is_stream=False),
                 self._loop
             )
-            result = fut.result(timeout=30)
-            return deserialize_result(result) if result is not None else None
+            try:
+                result = fut.result(timeout=30)
+                return deserialize_result(result) if result is not None else None
+            except Exception as e:
+                logger.error(f"Error executing function {function_name}: {e}")
+                raise RemoteExecutionError(str(e))
 
     def _execute_stream_function(self, node_id: str, call_id: str, function_name: str, args_bytes: bytes, kwargs_bytes: bytes):
         """执行流式函数"""
-        q = queue.Queue()
+        q = asyncio.Queue()
         self._pending_calls[call_id] = {'queue': q}
 
         if not self._loop:
@@ -279,15 +287,16 @@ class Server(service_pb2_grpc.RemoteServiceServicer):
             self._loop
         )
 
-        def generator():
+        async def async_generator():
             while True:
-                chunk = q.get()
-                if chunk is None:
+                chunk = await q.get()
+                if chunk is _SENTINEL:
                     break
                 if isinstance(chunk, Exception):
                     raise chunk
                 yield deserialize_result(chunk)
-        return generator()
+
+        return async_generator()
 
     async def _request_execution(self, node_id, call_id, function_name, args_bytes, kwargs_bytes, is_stream: bool):
         """发送执行请求"""
