@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![EasyRemote Logo](https://raw.githubusercontent.com/Qingbolan/EasyRemote/master/docs/easyremote-logo.png)
+![EasyRemote Logo](docs/easyremote-logo.png)
 
 [![PyPI version](https://badge.fury.io/py/easyremote.svg)](https://badge.fury.io/py/easyremote)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -12,6 +12,8 @@
 *一个用于无忧远程计算资源共享的轻量级框架*
 
 [English](README.md) | 中文
+
+`<div/>`
 
 ## 为什么选择 EasyRemote？
 
