@@ -13,7 +13,7 @@
 
 [English](README.md) | 中文
 
-`<div/>`
+</div>
 
 ## 为什么选择 EasyRemote？
 
