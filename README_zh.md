@@ -144,7 +144,7 @@
 
 ## 联系与支持
 
-* **作者：胡思澜**
+* **作者：胡思蓝**
 * **邮箱：**[silan.hu@u.nus.edu](mailto:silan.hu@u.nus.edu)
 * **GitHub：**[Qingbolan](https://github.com/Qingbolan)
 
