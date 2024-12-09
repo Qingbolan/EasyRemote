@@ -41,6 +41,9 @@ message ExecutionResult {
     bool is_done = 4;   
     bytes chunk = 5;    
     string call_id = 6; 
+
+    string function_name = 7; 
+    string node_id = 8;       
 }
 
 message ControlMessage {

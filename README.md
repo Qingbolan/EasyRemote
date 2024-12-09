@@ -1,4 +1,3 @@
-
 # EasyRemote
 
 <div align="center">
@@ -8,7 +7,6 @@
 [![PyPI version](https://badge.fury.io/py/easyremote.svg)](https://badge.fury.io/py/easyremote)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python Version](https://img.shields.io/pypi/pyversions/easyremote)]()
-[![Downloads](https://pepy.tech/badge/easyremote)]()
 
 *A lightweight framework for hassle-free remote computing resource sharing.*
 
@@ -28,11 +26,20 @@ EasyRemote lets you expose local computing resources (AI models, data processing
 
 ```python
 # It's as simple as this:
-from easyremote import remote
+from easyremote import ComputeNode
 
-@remote
+# Initialize ComputeNode with VPS address and unique node ID
+node = ComputeNode(
+    vps_address="your-vps-ip:8080",
+    node_id="basic-compute"
+)
+
+@node.register
 def run_model(input_data):
-    return your_ai_model(input_data)  # Runs on your local GPU
+    return your_ai_model(input_data)  # Executes on your local GPU
+
+if __name__ == "__main__":
+    node.serve()
 ```
 
 ## Features
@@ -55,8 +62,12 @@ pip install easyremote
 ```python
 from easyremote import Server
 
+app = FastAPI()
 server = Server(port=8080)
-server.start()
+
+@remote(node_id="basic-compute")
+def add(a: int, b: int) -> int:
+    pass
 ```
 
 ### 3. Configure Local Node

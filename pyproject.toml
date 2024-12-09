@@ -5,21 +5,53 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "easyremote"
-version = "0.1.0"
+version = "0.1.0.2"
 description = "Easy remote function execution framework"
 readme = "README.md"
-authors = [{name = "Your Name", email = "your.email@example.com"}]
+authors = [{name = "Silan.Hu", email = "silan.hu@u.nus.edu"}]
 license = {file = "LICENSE"}
 classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
+    # Python版本支持 - 建议支持3.7+因为异步功能需要
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    
+    # 开发状态
+    "Development Status :: 3 - Alpha",  # 或者用4 - Beta，取决于您认为的成熟度
+    
+    # 目标用户
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Information Technology",
+    
+    # 主题分类
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Distributed Computing",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    
+    # 运行环境
     "Operating System :: OS Independent",
+    
+    # 许可证
+    "License :: OSI Approved :: MIT License",
+    
+    # 框架特点
+    "Framework :: AsyncIO",
+    "Natural Language :: English",
+    "Natural Language :: Chinese (Simplified)",
 ]
 dependencies = [
-    "grpcio>=1.51.0",
-    "protobuf>=4.21.0",
+    "grpcio>=1.68.1",
+    "protobuf>=5.29.0",
+    "uvicorn>=0.32.1",
+    "python-multipart>=0.0.19",
+    "rich>=13.0.0"
 ]
 requires-python = ">=3.7"
 
 [project.urls]
-Homepage = "https://github.com/Qingbolan/easyremote"
+"Homepage" = "https://github.com/Qingbolan/easyremote"
+"Bug Tracker" = "https://github.com/Qingbolan/EasyRemote/issues"
+"Repository" = "https://github.com/Qingbolan/EasyRemote.git"

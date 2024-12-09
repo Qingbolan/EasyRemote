@@ -1,7 +1,5 @@
 # compute_node.py
 from easyremote import ComputeNode
-import asyncio
-import json
 from PIL import Image
 import io
 
@@ -49,5 +47,4 @@ def process_photo(photo_bytes: bytes) -> bytes:
         raise e
 
 if __name__ == "__main__":
-    print("启动 Compute Node...")
     node.serve()

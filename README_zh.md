@@ -7,7 +7,6 @@
 [![PyPI version](https://badge.fury.io/py/easyremote.svg)](https://badge.fury.io/py/easyremote)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python Version](https://img.shields.io/pypi/pyversions/easyremote)]()
-[![Downloads](https://pepy.tech/badge/easyremote)]()
 
 *一个用于无忧远程计算资源共享的轻量级框架*
 
