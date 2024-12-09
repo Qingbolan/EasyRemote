@@ -10,7 +10,7 @@
 
 *A lightweight framework for hassle-free remote computing resource sharing.*
 
-English | [中文](./README_zh.md)
+English | [中文](https://github.com/Qingbolan/EasyRemote/blob/main/README_zh.md)
 
 </div>
 
@@ -25,7 +25,7 @@ Are you tired of:
 EasyRemote lets you expose local computing resources (AI models, data processing functions) as remote services with just a few lines of code. All you need is a cheap VPS!
 
 ```python
-# It's as simple as this:
+# It's as simple as this (register):
 from easyremote import ComputeNode
 
 # Initialize ComputeNode with VPS address and unique node ID
@@ -57,7 +57,7 @@ if __name__ == "__main__":
 pip install easyremote
 ```
 
-### 2. Set Up VPS (Gateway)
+### 2. Set Up VPS (Gateway&&Call)
 
 ```python
 from easyremote import Server
@@ -85,16 +85,6 @@ def process_data(data):
 
 # Start serving
 node.serve()
-```
-
-### 4. Call Remote Functions
-
-```python
-# From anywhere with internet access
-from easyremote import Client
-
-client = Client("vps-ip:8080")
-result = client.call("process_data", data=my_data)
 ```
 
 ## Advanced Usage
@@ -142,6 +132,7 @@ Client -> VPS (Gateway) -> Local Compute Node
 
 ## Roadmap
 
+- [ ] Rewrite Distributed Network Using Go's Kitex Framework
 - [ ] Multi-node clustering support
 - [ ] Enhanced security features
 - [ ] Web-based management UI
@@ -169,7 +160,6 @@ Special thanks to all contributors who have helped make EasyRemote better!
 ---
 
 <div align="center">
-
 *If you find EasyRemote useful, please consider giving it a star ⭐*
 
 </div>

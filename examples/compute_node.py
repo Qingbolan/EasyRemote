@@ -12,13 +12,13 @@ node = ComputeNode(
 @node.register
 def add(a: int, b: int) -> int:
     """计算两个整数的和。"""
-    print("执行 /add")
+    # print("执行 /add")
     return a + b
 
 @node.register
 def process_data(data: dict) -> dict:
     """处理数据，将每个值乘以2。"""
-    print("执行 /process")
+    # print("执行 /process")
     return {k: v * 2 for k, v in data.items()}
 
 @node.register
@@ -32,7 +32,7 @@ def process_photo(photo_bytes: bytes) -> bytes:
     Returns:
         bytes: 处理后的灰度照片的字节数据。
     """
-    print("执行 /process_photo")
+    # print("执行 /process_photo")
     try:
         # 从字节数据中打开图像
         image = Image.open(io.BytesIO(photo_bytes))
@@ -43,7 +43,7 @@ def process_photo(photo_bytes: bytes) -> bytes:
         grayscale.save(output, format='PNG')  # 保持原格式或选择其他格式
         return output.getvalue()
     except Exception as e:
-        print(f"处理照片时出错: {e}")
+        # print(f"处理照片时出错: {e}")
         raise e
 
 if __name__ == "__main__":

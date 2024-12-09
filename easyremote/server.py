@@ -271,9 +271,9 @@ class Server(service_pb2_grpc.RemoteServiceServicer):
                         cause=None
                     ))
                 else:
-                    print("_handle_execution_result->deserialize_result")
+                    # print("_handle_execution_result->deserialize_result")
                     result = deserialize_result(res.result) if res.result else None
-                    print("_handle_execution_result->deserialize_result")
+                    # print("_handle_execution_result->deserialize_result")
                     call_ctx.set_result(result)
                 self._pending_calls.pop(call_id, None)
             else:
@@ -307,9 +307,9 @@ class Server(service_pb2_grpc.RemoteServiceServicer):
         func_info = node.functions[function_name]
         is_stream = func_info.is_generator
         call_id = str(uuid.uuid4())
-        print("serialize_args")
+        # print("serialize_args")
         args_bytes, kwargs_bytes = serialize_args(*args, **kwargs)
-        print("serialize_args->args_bytes")
+        # print("serialize_args->args_bytes")
 
         if is_stream:
             return self._execute_stream_function(node_id, call_id, function_name, args_bytes, kwargs_bytes)
@@ -365,7 +365,7 @@ class Server(service_pb2_grpc.RemoteServiceServicer):
                 if isinstance(chunk, Exception):
                     raise chunk
                 try:
-                    yield deserialize_result(chunk)
+                    yield chunk
                 except SerializationError as e:
                     raise e
 

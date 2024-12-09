@@ -242,9 +242,9 @@ class ComputeNode:
         call_id = req.call_id
         try:
             # 反序列化参数
-            print("handle_execution_request-deserialize_args")
+            # print("handle_execution_request-deserialize_args")
             args, kwargs = deserialize_args(req.args, req.kwargs)
-            print("handle_execution_request-deserialize_args-end")
+            # print("handle_execution_request-deserialize_args-end")
 
             if function_name not in self._functions:
                 raise FunctionNotFoundError(function_name, node_id=self.node_id)
@@ -254,9 +254,9 @@ class ComputeNode:
             if func_info.is_generator:
                 # 处理生成器函数
                 async for chunk in self._handle_generator(func_info, args, kwargs):
-                    print("handle_execution_request-genrate-serialize_result")
+                    # print("handle_execution_request-genrate-serialize_result")
                     serialized_chunk = serialize_result(chunk)
-                    print("handle_execution_request-genrate-serialize_result-end")
+                    # print("handle_execution_request-genrate-serialize_result-end")
                     exec_res_msg = service_pb2.ControlMessage(
                         exec_res=service_pb2.ExecutionResult(
                             call_id=call_id,
@@ -281,9 +281,9 @@ class ComputeNode:
             else:
                 # 执行普通函数
                 result = await self._execute_function(func_info, args, kwargs)
-                print("handle_execution_request-serialize_result")
+                # print("handle_execution_request-serialize_result")
                 result_bytes = serialize_result(result)
-                print("handle_execution_request-serialize_result-end")
+                # print("handle_execution_request-serialize_result-end")
 
                 exec_res_msg = service_pb2.ControlMessage(
                     exec_res=service_pb2.ExecutionResult(
