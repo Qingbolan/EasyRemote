@@ -1,6 +1,6 @@
 # easyremote/types.py
 from dataclasses import dataclass
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Optional, Callable
 from datetime import datetime
 
 @dataclass

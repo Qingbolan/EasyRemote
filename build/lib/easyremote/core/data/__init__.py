@@ -1,0 +1,1 @@
+# Data types module for EasyRemote 

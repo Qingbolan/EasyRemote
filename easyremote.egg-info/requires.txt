@@ -1,0 +1,5 @@
+grpcio>=1.68.1
+protobuf>=5.29.0
+uvicorn>=0.32.1
+python-multipart>=0.0.19
+rich>=13.0.0

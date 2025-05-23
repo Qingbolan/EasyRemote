@@ -1,0 +1,9 @@
+include README.md
+include LICENSE
+include NOTICE.md
+include requirements.txt
+recursive-include easyremote *.py
+recursive-include easyremote *.proto
+recursive-include tests *.py
+global-exclude *.pyc
+global-exclude __pycache__ 

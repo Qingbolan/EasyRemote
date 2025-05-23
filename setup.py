@@ -6,7 +6,7 @@ from distutils.command.build_py import build_py
 
 class BuildProtoCommand(build_py):
     def run(self):
-        proto_file = os.path.join("easyremote", "protos", "service.proto")
+        proto_file = os.path.join("easyremote", "core", "network", "protos", "service.proto")
         proto_dir = os.path.dirname(proto_file)
         
         os.makedirs(proto_dir, exist_ok=True)
