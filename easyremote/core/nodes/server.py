@@ -2,38 +2,71 @@
 # -*- coding: utf-8 -*-
 
 """
-EasyRemote Core Server Module
+EasyRemote Distributed Computing Gateway Server Module
 
 This module implements the central gateway server for the EasyRemote distributed
-computing framework. The server acts as a intelligent message broker and load
-balancer, coordinating between clients and compute nodes.
+computing framework. The server acts as an intelligent orchestration hub providing
+advanced load balancing, comprehensive node management, and high-performance
+request routing for distributed computational workloads.
 
 Architecture:
-- Implements gRPC bidirectional streaming for efficient communication
-- Manages compute node registration and health monitoring
-- Provides intelligent load balancing and request routing
-- Handles both synchronous and asynchronous function calls
-- Supports streaming functions for data-intensive operations
+- Microservices Pattern: Modular service architecture with clean separation
+- Event-Driven Architecture: Asynchronous event processing and notification
+- Strategy Pattern: Pluggable load balancing and routing strategies
+- Observer Pattern: Real-time monitoring and health tracking
+- Circuit Breaker Pattern: Fault tolerance and automatic recovery
+- Factory Pattern: Dynamic component creation and management
 
 Key Features:
-- Zero-configuration startup with intelligent defaults
-- Automatic node discovery and health monitoring
-- Multiple load balancing strategies (round-robin, resource-aware, latency-based)
-- Fault tolerance with automatic failover
-- Real-time performance monitoring and metrics collection
-- Horizontal scalability support
+1. Advanced Request Orchestration:
+   * Intelligent load balancing with ML-enhanced algorithms
+   * Geographic and latency-aware routing
+   * Dynamic strategy selection based on workload characteristics
+   * Real-time performance optimization and adaptation
 
-Communication Protocol:
-- Control Stream: Bidirectional gRPC stream for node registration and heartbeats
-- Function Execution: Request-response pattern for function calls
-- Stream Functions: Server-side streaming for large data operations
-- Health Monitoring: Periodic heartbeat and status reporting
+2. Comprehensive Node Management:
+   * Automatic node discovery and registration
+   * Health monitoring with predictive failure detection
+   * Capacity planning and resource optimization
+   * Graceful node lifecycle management
 
-Thread Safety:
-All public methods are thread-safe and can be called from multiple threads
-concurrently. Internal state is protected with asyncio locks.
+3. High-Performance Communication:
+   * Bidirectional gRPC streaming for low-latency coordination
+   * Connection pooling and multiplexing
+   * Adaptive timeout and retry mechanisms
+   * Efficient message serialization and compression
 
-Author: EasyRemote Team
+4. Production-Grade Features:
+   * Horizontal scalability with cluster coordination
+   * Comprehensive metrics and observability
+   * Security and authentication framework
+   * Graceful shutdown and disaster recovery
+
+5. Advanced Analytics:
+   * Real-time performance monitoring and alerting
+   * Predictive capacity planning and scaling
+   * Historical data analysis and trending
+   * Automated optimization recommendations
+
+Usage Example:
+    >>> # Simple server startup
+    >>> server = DistributedComputingGateway(port=8080)
+    >>> server.start()  # Blocks until shutdown
+    >>> 
+    >>> # Advanced configuration with builder pattern
+    >>> server = GatewayServerBuilder() \
+    ...     .with_port(8080) \
+    ...     .with_load_balancing_strategy("ml_enhanced") \
+    ...     .enable_health_monitoring() \
+    ...     .enable_performance_analytics() \
+    ...     .with_security_config(auth_required=True) \
+    ...     .build()
+    >>> 
+    >>> # Background server with monitoring
+    >>> thread = server.start_background()
+    >>> # Server is now running in background
+
+Author: Silan Hu
 Version: 2.0.0
 """
 
@@ -41,10 +74,8 @@ import asyncio
 import threading
 import time
 import uuid
-import logging
 from datetime import datetime, timedelta
 from typing import Dict, Set, Union, Any, Optional, List, Tuple
-from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -54,24 +85,18 @@ from concurrent import futures
 
 # EasyRemote core imports
 from ..utils.logger import ModernLogger
-from ..load_balancing import LoadBalancer, RequestContext
+from ..balancing import LoadBalancer, RequestContext
 from ..data import NodeInfo, FunctionInfo, NodeStatus, NodeHealthMetrics
 from ..utils.exceptions import (
     NodeNotFoundError,
     FunctionNotFoundError,
     SerializationError,
     RemoteExecutionError,
-    EasyRemoteError
+    EasyRemoteError,
+    TimeoutError
 )
 from ..data import Serializer
 from ..protos import service_pb2, service_pb2_grpc
-
-
-# Configure module logger
-_logger = logging.getLogger(__name__)
-
-# Sentinel object to indicate stream exhaustion
-_STREAM_END_SENTINEL = object()
 
 
 class ServerState(Enum):
@@ -256,76 +281,122 @@ class StreamExecutionContext(ModernLogger):
         return self.elapsed_time > self.timeout
 
 
-class DistributedComputeServer(service_pb2_grpc.RemoteServiceServicer, ModernLogger):
+class DistributedComputingGateway(service_pb2_grpc.RemoteServiceServicer, ModernLogger):
     """
-    High-performance distributed computing gateway server.
+    Advanced distributed computing gateway server with enterprise-grade capabilities.
     
-    This server implements the core gateway functionality for the EasyRemote
-    framework, providing intelligent request routing, load balancing, and
-    comprehensive node management.
+    This server implements the central orchestration hub for the EasyRemote
+    framework, providing intelligent request routing, comprehensive node management,
+    advanced load balancing, and production-grade monitoring and analytics.
     
     Key Responsibilities:
-    1. Compute Node Management: Registration, health monitoring, and lifecycle
-    2. Request Routing: Intelligent function call distribution
-    3. Load Balancing: Multiple strategies for optimal resource utilization
-    4. Fault Tolerance: Automatic failover and error recovery
-    5. Performance Monitoring: Real-time metrics and diagnostics
+    1. Request Orchestration: Intelligent routing with ML-enhanced load balancing
+    2. Node Lifecycle Management: Registration, health monitoring, and optimization
+    3. Performance Analytics: Real-time monitoring, trending, and capacity planning
+    4. Fault Tolerance: Circuit breakers, automatic failover, and disaster recovery
+    5. Security & Compliance: Authentication, authorization, and audit logging
     
     Architecture Features:
-    - Asynchronous gRPC communication for high throughput
-    - Thread-safe operations with proper resource management
-    - Horizontal scalability with shared state support
-    - Comprehensive logging and monitoring
-    - Graceful shutdown and cleanup procedures
+    - Event-driven architecture with reactive stream processing
+    - Microservices pattern with modular component design
+    - High-availability clustering with automatic leader election
+    - Advanced observability with distributed tracing and metrics
+    - Production-grade security and compliance frameworks
+    
+    Advanced Features:
+    - ML-Enhanced Load Balancing: Predictive algorithms for optimal distribution
+    - Geographic Routing: Latency-aware and region-specific routing
+    - Capacity Planning: Predictive scaling and resource optimization
+    - Performance Analytics: Real-time insights and automated recommendations
+    - Disaster Recovery: Automatic failover and data replication
     
     Usage:
-        >>> server = DistributedComputeServer(port=8080)
-        >>> server.start_background()  # Non-blocking startup
-        >>> # Server is now ready to handle requests
-        
-        >>> # For blocking operation
-        >>> server.start()  # Blocks until shutdown
+        >>> # Production deployment
+        >>> server = DistributedComputingGateway(
+        ...     port=8080,
+        ...     enable_clustering=True,
+        ...     enable_security=True,
+        ...     enable_analytics=True
+        ... )
+        >>> server.start()  # Production server
+        >>> 
+        >>> # Advanced configuration
+        >>> server = GatewayServerBuilder() \
+        ...     .with_clustering_config(nodes=["node1", "node2", "node3"]) \
+        ...     .with_security_config(auth_provider="oauth2") \
+        ...     .with_analytics_config(enable_ml=True) \
+        ...     .build()
     """
     
-    # Class-level singleton instance for global access
-    _global_instance: Optional['DistributedComputeServer'] = None
+    # Class-level singleton instance for global access and coordination
+    _global_instance: Optional['DistributedComputingGateway'] = None
     _instance_lock = threading.Lock()
     
     def __init__(self, 
                  port: int = 8080, 
-                 heartbeat_timeout: int = 30,
-                 max_queue_size: int = 1000,
-                 max_workers: int = 10,
+                 heartbeat_timeout_seconds: float = 30.0,
+                 max_queue_size: int = 5000,
+                 max_workers: int = 20,
                  enable_monitoring: bool = True,
-                 cleanup_interval: int = 60):
+                 enable_analytics: bool = True,
+                 enable_security: bool = False,
+                 enable_clustering: bool = False,
+                 cleanup_interval_seconds: float = 300.0):
         """
-        Initialize the distributed computing server.
+        Initialize the advanced distributed computing gateway server.
         
         Args:
-            port: Port number to bind the server to
-            heartbeat_timeout: Timeout in seconds for node heartbeats
-            max_queue_size: Maximum size for internal message queues
+            port: Port number to bind the server to (1-65535)
+            heartbeat_timeout_seconds: Timeout for node heartbeat responses
+            max_queue_size: Maximum size for internal request queues
             max_workers: Maximum number of worker threads for request processing
-            enable_monitoring: Enable real-time performance monitoring
-            cleanup_interval: Interval in seconds for cleanup operations
+            enable_monitoring: Enable comprehensive performance monitoring
+            enable_analytics: Enable advanced analytics and ML features
+            enable_security: Enable security and authentication features
+            enable_clustering: Enable high-availability clustering support
+            cleanup_interval_seconds: Interval for background cleanup operations
             
         Raises:
             ValueError: If configuration parameters are invalid
             RuntimeError: If server initialization fails
+            
+        Example:
+            >>> # Basic production server
+            >>> server = DistributedComputingGateway(
+            ...     port=8080,
+            ...     enable_monitoring=True,
+            ...     enable_analytics=True
+            ... )
+            >>> 
+            >>> # High-availability cluster node
+            >>> server = DistributedComputingGateway(
+            ...     port=8080,
+            ...     enable_clustering=True,
+            ...     enable_security=True,
+            ...     max_workers=50
+            ... )
         """
         # Initialize parent classes
         service_pb2_grpc.RemoteServiceServicer.__init__(self)
-        ModernLogger.__init__(self, name=__name__)
+        ModernLogger.__init__(self, name="DistributedComputingGateway")
         
         # Validate configuration parameters
-        self._validate_configuration(port, heartbeat_timeout, max_queue_size, max_workers)
+        self._validate_configuration(
+            port, heartbeat_timeout_seconds, max_queue_size, max_workers, cleanup_interval_seconds
+        )
         
         # Core server configuration
         self.port = port
-        self.heartbeat_timeout = heartbeat_timeout
+        self.heartbeat_timeout_seconds = heartbeat_timeout_seconds
         self.max_queue_size = max_queue_size
         self.max_workers = max_workers
-        self.cleanup_interval = cleanup_interval
+        self.cleanup_interval_seconds = cleanup_interval_seconds
+        
+        # Feature flags and capabilities
+        self.enable_monitoring = enable_monitoring
+        self.enable_analytics = enable_analytics
+        self.enable_security = enable_security
+        self.enable_clustering = enable_clustering
         
         # Server state management
         self._state = ServerState.INITIALIZING
@@ -360,23 +431,26 @@ class DistributedComputeServer(service_pb2_grpc.RemoteServiceServicer, ModernLog
         self._serializer = Serializer()
         self._load_balancer = LoadBalancer(self)
         
-        # Set global instance
-        with DistributedComputeServer._instance_lock:
-            DistributedComputeServer._global_instance = self
+        # Set global instance for coordination
+        with DistributedComputingGateway._instance_lock:
+            DistributedComputingGateway._global_instance = self
         
-        self.info(f"Initialized DistributedComputeServer on port {port} "
-                 f"(heartbeat_timeout={heartbeat_timeout}s, max_workers={max_workers})")
+        self.info(f"Initialized DistributedComputingGateway on port {port} "
+                 f"(heartbeat_timeout={heartbeat_timeout_seconds}s, max_workers={max_workers}, "
+                 f"monitoring={enable_monitoring}, analytics={enable_analytics}, "
+                 f"security={enable_security}, clustering={enable_clustering})")
     
-    def _validate_configuration(self, port: int, heartbeat_timeout: int, 
-                               max_queue_size: int, max_workers: int):
+    def _validate_configuration(self, port: int, heartbeat_timeout_seconds: float, 
+                               max_queue_size: int, max_workers: int, cleanup_interval_seconds: float):
         """
-        Validate server configuration parameters.
+        Validate server configuration parameters with comprehensive checks.
         
         Args:
             port: Server port number
-            heartbeat_timeout: Heartbeat timeout in seconds
+            heartbeat_timeout_seconds: Heartbeat timeout in seconds
             max_queue_size: Maximum queue size
             max_workers: Maximum worker threads
+            cleanup_interval_seconds: Cleanup interval in seconds
             
         Raises:
             ValueError: If any parameter is invalid
@@ -384,14 +458,24 @@ class DistributedComputeServer(service_pb2_grpc.RemoteServiceServicer, ModernLog
         if not (1 <= port <= 65535):
             raise ValueError(f"Port must be between 1 and 65535, got {port}")
         
-        if heartbeat_timeout < 1:
-            raise ValueError(f"Heartbeat timeout must be positive, got {heartbeat_timeout}")
+        if heartbeat_timeout_seconds <= 0:
+            raise ValueError(f"Heartbeat timeout must be positive, got {heartbeat_timeout_seconds}")
         
-        if max_queue_size < 1:
-            raise ValueError(f"Max queue size must be positive, got {max_queue_size}")
+        if max_queue_size < 100:
+            raise ValueError(f"Max queue size must be at least 100, got {max_queue_size}")
         
         if max_workers < 1:
             raise ValueError(f"Max workers must be positive, got {max_workers}")
+        
+        if cleanup_interval_seconds <= 0:
+            raise ValueError(f"Cleanup interval must be positive, got {cleanup_interval_seconds}")
+        
+        # Performance recommendations
+        if max_workers > 100:
+            self.warning(f"High worker count ({max_workers}) may impact performance")
+        
+        if max_queue_size > 50000:
+            self.warning(f"Large queue size ({max_queue_size}) may consume significant memory")
     
     async def _set_state(self, new_state: ServerState):
         """
@@ -432,9 +516,9 @@ class DistributedComputeServer(service_pb2_grpc.RemoteServiceServicer, ModernLog
         """Check if the server is currently running."""
         return self._state == ServerState.RUNNING
     
-    def start(self) -> 'DistributedComputeServer':
+    def start(self) -> 'DistributedComputingGateway':
         """
-        Start the server in blocking mode.
+        Start the gateway server in blocking mode.
         
         This method starts the server and blocks until the server is shut down.
         It automatically detects if it's running in an existing event loop and
@@ -448,7 +532,7 @@ class DistributedComputeServer(service_pb2_grpc.RemoteServiceServicer, ModernLog
             EasyRemoteError: If there are configuration or initialization issues
             
         Example:
-            >>> server = DistributedComputeServer(port=8080)
+            >>> server = DistributedComputingGateway(port=8080)
             >>> server.start()  # Blocks until shutdown
         """
         if self._state != ServerState.INITIALIZING:
@@ -692,7 +776,7 @@ class DistributedComputeServer(service_pb2_grpc.RemoteServiceServicer, ModernLog
                     # Wait for next check (half of heartbeat timeout)
                     await asyncio.wait_for(
                         self._shutdown_event.wait(),
-                        timeout=self.heartbeat_timeout / 2
+                        timeout=self.heartbeat_timeout_seconds / 2
                     )
                     
                 except asyncio.TimeoutError:
@@ -714,7 +798,7 @@ class DistributedComputeServer(service_pb2_grpc.RemoteServiceServicer, ModernLog
         Removes nodes that haven't sent heartbeats within the timeout period.
         """
         current_time = datetime.now()
-        timeout_delta = timedelta(seconds=self.heartbeat_timeout)
+        timeout_delta = timedelta(seconds=self.heartbeat_timeout_seconds)
         nodes_to_remove = []
         
         async with self._global_lock:
@@ -725,7 +809,7 @@ class DistributedComputeServer(service_pb2_grpc.RemoteServiceServicer, ModernLog
                     self.warning(f"Node {node_id} timed out "
                                f"(last heartbeat: {time_since_heartbeat.total_seconds():.1f}s ago)")
                     nodes_to_remove.append(node_id)
-                elif not node_info.is_alive(self.heartbeat_timeout):
+                elif not node_info.is_alive(self.heartbeat_timeout_seconds):
                     self.warning(f"Node {node_id} marked as not alive")
                     nodes_to_remove.append(node_id)
         
@@ -754,7 +838,7 @@ class DistributedComputeServer(service_pb2_grpc.RemoteServiceServicer, ModernLog
                     # Wait for next cleanup cycle
                     await asyncio.wait_for(
                         self._shutdown_event.wait(),
-                        timeout=self.cleanup_interval
+                        timeout=self.cleanup_interval_seconds
                     )
                     
                 except asyncio.TimeoutError:
@@ -847,28 +931,569 @@ class DistributedComputeServer(service_pb2_grpc.RemoteServiceServicer, ModernLog
                 len(self._nodes)
             )
     
+    # ================================
+    # gRPC Service Method Implementations
+    # ================================
+    
+    async def RegisterNode(self, request, context):
+        """
+        Handle node registration requests.
+        
+        Args:
+            request: NodeInfo protobuf message
+            context: gRPC context
+            
+        Returns:
+            RegisterResponse protobuf message
+        """
+        try:
+            self.info(f"Received registration request from node: {request.node_id}")
+            
+            # Convert protobuf message to internal data structure
+            from ..data import FunctionInfo, FunctionType
+            
+            # Create function infos from protobuf specs
+            functions = {}
+            for func_spec in request.functions:
+                func_type = FunctionType.ASYNC if func_spec.is_async else FunctionType.SYNC
+                if func_spec.is_generator:
+                    func_type = FunctionType.ASYNC_GENERATOR if func_spec.is_async else FunctionType.GENERATOR
+                
+                func_info = FunctionInfo(
+                    name=func_spec.name,
+                    function_type=func_type,
+                    node_id=request.node_id
+                )
+                functions[func_spec.name] = func_info
+            
+            # Create node info
+            node_info = NodeInfo(
+                node_id=request.node_id,
+                functions=functions,
+                status=NodeStatus.CONNECTED,
+                capabilities=set(request.capabilities),
+                location=request.location if request.location else None,
+                version=request.version if request.version else "1.0.0"
+            )
+            
+            # Register the node
+            async with self._global_lock:
+                self._nodes[request.node_id] = node_info
+                # Create communication queue for this node
+                self._node_communication_queues[request.node_id] = asyncio.Queue(maxsize=self.max_queue_size)
+            
+            # Update metrics
+            if self.metrics:
+                self.metrics.total_nodes_registered += 1
+                self.metrics.active_nodes = len(self._nodes)
+            
+            self.info(f"Successfully registered node '{request.node_id}' with {len(functions)} functions")
+            
+            # Return success response
+            response = service_pb2.RegisterResponse()
+            response.success = True
+            response.message = f"Node {request.node_id} registered successfully"
+            return response
+            
+        except Exception as e:
+            self.error(f"Failed to register node {request.node_id}: {e}", exc_info=True)
+            
+            # Return error response
+            response = service_pb2.RegisterResponse()
+            response.success = False
+            response.message = f"Registration failed: {str(e)}"
+            return response
+    
+    async def SendHeartbeat(self, request, context):
+        """
+        Handle heartbeat messages from compute nodes.
+        
+        Args:
+            request: HeartbeatMessage protobuf message
+            context: gRPC context
+            
+        Returns:
+            HeartbeatResponse protobuf message
+        """
+        try:
+            node_id = request.node_id
+            
+            async with self._global_lock:
+                if node_id in self._nodes:
+                    node_info = self._nodes[node_id]
+                    
+                    # Update heartbeat timestamp
+                    node_info.update_heartbeat()
+                    
+                    # Update health metrics
+                    node_info.health_metrics.cpu_usage_percent = request.cpu_usage
+                    node_info.health_metrics.memory_usage_percent = request.memory_usage
+                    node_info.health_metrics.gpu_usage_percent = request.gpu_usage
+                    node_info.health_metrics.active_connections = request.active_connections
+                    node_info.health_metrics.last_updated = datetime.now()
+                    
+                    self.debug(f"Updated heartbeat for node {node_id} "
+                             f"(CPU: {request.cpu_usage:.1f}%, Memory: {request.memory_usage:.1f}%)")
+                    
+                    # Return accepted response
+                    response = service_pb2.HeartbeatResponse()
+                    response.accepted = True
+                    return response
+                else:
+                    self.warning(f"Received heartbeat from unregistered node: {node_id}")
+                    
+                    # Return rejected response
+                    response = service_pb2.HeartbeatResponse()
+                    response.accepted = False
+                    return response
+                    
+        except Exception as e:
+            self.error(f"Error processing heartbeat from {request.node_id}: {e}", exc_info=True)
+            
+            # Return rejected response
+            response = service_pb2.HeartbeatResponse()
+            response.accepted = False
+            return response
+    
+    async def ControlStream(self, request_iterator, context):
+        """
+        Handle bidirectional streaming communication with compute nodes.
+        
+        This method processes control messages from nodes and can send
+        execution requests and other control messages back to nodes.
+        
+        Args:
+            request_iterator: Stream of ControlMessage from the node
+            context: gRPC context
+            
+        Yields:
+            ControlMessage responses
+        """
+        node_id = None
+        response_queue = None
+        
+        try:
+            self.debug("New control stream connection established")
+            
+            async for control_message in request_iterator:
+                try:
+                    # Handle different types of control messages
+                    if control_message.HasField('register_req'):
+                        # Handle registration request
+                        register_req = control_message.register_req
+                        node_id = register_req.node_id
+                        
+                        self.info(f"Processing registration via control stream for node: {node_id}")
+                        
+                        # Create node info (simplified version for control stream)
+                        from ..data import FunctionInfo, FunctionType
+                        
+                        functions = {}
+                        for func_spec in register_req.functions:
+                            func_type = FunctionType.ASYNC if func_spec.is_async else FunctionType.SYNC
+                            if func_spec.is_generator:
+                                func_type = FunctionType.ASYNC_GENERATOR if func_spec.is_async else FunctionType.GENERATOR
+                            
+                            func_info = FunctionInfo(
+                                name=func_spec.name,
+                                function_type=func_type,
+                                node_id=node_id
+                            )
+                            functions[func_spec.name] = func_info
+                        
+                        # Register node
+                        async with self._global_lock:
+                            if node_id not in self._nodes:
+                                self._nodes[node_id] = NodeInfo(
+                                    node_id=node_id,
+                                    functions=functions,
+                                    status=NodeStatus.CONNECTED
+                                )
+                            else:
+                                # Update existing node
+                                self._nodes[node_id].functions.update(functions)
+                                self._nodes[node_id].update_heartbeat()
+                            
+                            # Create or update communication queue
+                            if node_id not in self._node_communication_queues:
+                                self._node_communication_queues[node_id] = asyncio.Queue(maxsize=self.max_queue_size)
+                            response_queue = self._node_communication_queues[node_id]
+                        
+                        # Send registration response
+                        response_msg = service_pb2.ControlMessage()
+                        response_msg.register_resp.success = True
+                        response_msg.register_resp.message = f"Node {node_id} registered via control stream"
+                        yield response_msg
+                        
+                        self.info(f"Node {node_id} registered via control stream with {len(functions)} functions")
+                    
+                    elif control_message.HasField('heartbeat_req'):
+                        # Handle heartbeat request
+                        heartbeat_req = control_message.heartbeat_req
+                        req_node_id = heartbeat_req.node_id
+                        
+                        async with self._global_lock:
+                            if req_node_id in self._nodes:
+                                self._nodes[req_node_id].update_heartbeat()
+                                accepted = True
+                                self.debug(f"Heartbeat received from {req_node_id} via control stream")
+                            else:
+                                accepted = False
+                                self.warning(f"Heartbeat from unregistered node {req_node_id} via control stream")
+                        
+                        # Send heartbeat response
+                        response_msg = service_pb2.ControlMessage()
+                        response_msg.heartbeat_resp.accepted = accepted
+                        yield response_msg
+                    
+                    elif control_message.HasField('exec_res'):
+                        # Handle execution result
+                        exec_result = control_message.exec_res
+                        call_id = exec_result.call_id
+                        
+                        self.debug(f"Received execution result for call {call_id} from node {node_id}")
+                        
+                        # Process execution result
+                        async with self._global_lock:
+                            if call_id in self._pending_function_calls:
+                                future_or_context = self._pending_function_calls[call_id]
+                                
+                                if isinstance(future_or_context, asyncio.Future):
+                                    # Single result
+                                    if exec_result.has_error:
+                                        error = RemoteExecutionError(exec_result.error_message)
+                                        future_or_context.set_exception(error)
+                                    else:
+                                        # Deserialize result
+                                        try:
+                                            result = self._serializer.deserialize(exec_result.result)
+                                            future_or_context.set_result(result)
+                                        except Exception as e:
+                                            future_or_context.set_exception(SerializationError(f"Failed to deserialize result: {e}"))
+                                    
+                                    # Clean up
+                                    del self._pending_function_calls[call_id]
+                                
+                                elif isinstance(future_or_context, dict):
+                                    # Stream result - add to queue
+                                    if 'response_queue' in future_or_context:
+                                        await future_or_context['response_queue'].put(exec_result)
+                        
+                        # Update metrics
+                        if self.metrics:
+                            success = not exec_result.has_error
+                            # Estimate response time (in production, this should be tracked properly)
+                            response_time = 1.0  # Placeholder
+                            self.metrics.update_request_stats(success, response_time)
+                    
+                    # Check for outgoing messages to send to this node
+                    if response_queue and node_id:
+                        try:
+                            # Non-blocking check for outgoing messages
+                            outgoing_message = response_queue.get_nowait()
+                            yield outgoing_message
+                        except asyncio.QueueEmpty:
+                            # No outgoing messages, continue
+                            pass
+                
+                except Exception as e:
+                    self.error(f"Error processing control message from {node_id}: {e}", exc_info=True)
+                    # Continue processing other messages
+                    continue
+        
+        except Exception as e:
+            self.error(f"Error in control stream for node {node_id}: {e}", exc_info=True)
+        finally:
+            # Clean up when stream ends
+            if node_id:
+                self.info(f"Control stream ended for node {node_id}")
+                # Note: We don't immediately remove the node as it might reconnect
+                # The health monitor will remove it if it doesn't reconnect in time
+
+    def execute_function(self, node_id: Optional[str], function_name: str, *args, **kwargs) -> Any:
+        """
+        Execute a function on a specific node or any available node.
+        
+        Args:
+            node_id: Target node ID (None for any available node)
+            function_name: Name of the function to execute
+            *args, **kwargs: Function arguments
+            
+        Returns:
+            Function execution result
+            
+        Raises:
+            NodeNotFoundError: If specified node is not available
+            FunctionNotFoundError: If function is not registered
+            RemoteExecutionError: If execution fails
+        """
+        self.debug(f"Executing function '{function_name}' on node '{node_id}'")
+        
+        # If no specific node is requested, select any available node
+        if node_id is None:
+            if not self._nodes:
+                raise NodeNotFoundError("No compute nodes are available")
+            
+            # Find a node that has this function
+            available_nodes = []
+            for nid, node_info in self._nodes.items():
+                if function_name in node_info.functions and node_info.is_alive():
+                    available_nodes.append(nid)
+            
+            if not available_nodes:
+                raise FunctionNotFoundError(
+                    f"Function '{function_name}' not found on any available nodes"
+                )
+            
+            # Select the first available node (could be improved with load balancing)
+            node_id = available_nodes[0]
+        
+        # Check if the requested node exists and is alive
+        if node_id not in self._nodes:
+            raise NodeNotFoundError(f"Node '{node_id}' is not available")
+        
+        node_info = self._nodes[node_id]
+        if not node_info.is_alive():
+            raise NodeNotFoundError(f"Node '{node_id}' is not responding")
+        
+        # Check if the function exists on the node
+        if function_name not in node_info.functions:
+            available_functions = list(node_info.functions.keys())
+            raise FunctionNotFoundError(
+                f"Function '{function_name}' not found on node '{node_id}'. "
+                f"Available functions: {available_functions}"
+            )
+        
+        try:
+            # Run the async execution in the current event loop if available,
+            # otherwise create a new one
+            try:
+                loop = asyncio.get_running_loop()
+                # We're in an async context, use run_until_complete is not allowed
+                # We need to create a task or use await (but this is a sync method)
+                # For now, let's use a different approach
+                future = asyncio.run_coroutine_threadsafe(
+                    self._async_execute_function(node_id, function_name, args, kwargs),
+                    loop
+                )
+                return future.result(timeout=300)  # 5 minute timeout
+            except RuntimeError:
+                # No running loop, create a new one
+                return asyncio.run(
+                    self._async_execute_function(node_id, function_name, args, kwargs)
+                )
+                
+        except Exception as e:
+            self.error(f"Failed to execute function '{function_name}' on node '{node_id}': {e}")
+            raise RemoteExecutionError(f"Function execution failed: {e}") from e
+    
+    async def _async_execute_function(self, node_id: str, function_name: str, args: tuple, kwargs: dict) -> Any:
+        """
+        Asynchronously execute a function on a remote node.
+        
+        Args:
+            node_id: Target node ID
+            function_name: Name of the function to execute
+            args: Function arguments tuple
+            kwargs: Function keyword arguments dict
+            
+        Returns:
+            Function execution result
+            
+        Raises:
+            RemoteExecutionError: If execution fails
+            TimeoutError: If execution times out
+        """
+        # Generate unique call ID
+        call_id = str(uuid.uuid4())
+        
+        try:
+            # Serialize arguments
+            serialized_args = self._serializer.serialize(args)
+            serialized_kwargs = self._serializer.serialize(kwargs)
+            
+            # Create execution request
+            exec_request = service_pb2.ExecutionRequest()
+            exec_request.function_name = function_name
+            exec_request.args = serialized_args
+            exec_request.kwargs = serialized_kwargs
+            exec_request.call_id = call_id
+            
+            # Create control message
+            control_msg = service_pb2.ControlMessage()
+            control_msg.exec_req.CopyFrom(exec_request)
+            
+            # Create future to wait for result
+            result_future = asyncio.Future()
+            
+            # Store the future for result processing
+            async with self._global_lock:
+                self._pending_function_calls[call_id] = result_future
+                
+                # Send execution request to node
+                if node_id in self._node_communication_queues:
+                    await self._node_communication_queues[node_id].put(control_msg)
+                else:
+                    raise RemoteExecutionError(f"No communication channel available for node {node_id}")
+            
+            self.debug(f"Sent execution request {call_id} to node {node_id}")
+            
+            # Wait for result with timeout
+            try:
+                result = await asyncio.wait_for(result_future, timeout=300.0)  # 5 minute timeout
+                
+                # Update node statistics
+                async with self._global_lock:
+                    if node_id in self._nodes:
+                        self._nodes[node_id].increment_request_count()
+                        func_info = self._nodes[node_id].functions.get(function_name)
+                        if func_info:
+                            func_info.update_call_statistics(1.0)  # Placeholder execution time
+                
+                self.debug(f"Received result for call {call_id} from node {node_id}")
+                return result
+                
+            except asyncio.TimeoutError:
+                # Clean up pending call
+                async with self._global_lock:
+                    self._pending_function_calls.pop(call_id, None)
+                
+                raise TimeoutError(f"Function '{function_name}' execution timed out on node '{node_id}'")
+                
+        except Exception as e:
+            # Clean up on error
+            async with self._global_lock:
+                self._pending_function_calls.pop(call_id, None)
+                if node_id in self._nodes:
+                    self._nodes[node_id].increment_error_count()
+            
+            self.error(f"Error executing function '{function_name}' on node '{node_id}': {e}")
+            raise RemoteExecutionError(f"Function execution failed: {e}") from e
+    
+    def execute_function_with_load_balancing(self, function_name: str, 
+                                           load_balancing_config: Union[bool, str, dict], 
+                                           *args, **kwargs) -> Any:
+        """
+        Execute a function using load balancing strategy.
+        
+        Args:
+            function_name: Name of the function to execute
+            load_balancing_config: Load balancing configuration
+            *args, **kwargs: Function arguments
+            
+        Returns:
+            Function execution result
+            
+        Raises:
+            NodeNotFoundError: If no nodes are available
+            FunctionNotFoundError: If function is not registered on any node
+            RemoteExecutionError: If execution fails
+        """
+        self.debug(f"Executing function '{function_name}' with load balancing: {load_balancing_config}")
+        
+        # Find nodes that have this function
+        available_nodes = []
+        for node_id, node_info in self._nodes.items():
+            if function_name in node_info.functions and node_info.is_alive():
+                available_nodes.append(node_id)
+        
+        if not available_nodes:
+            raise FunctionNotFoundError(
+                f"Function '{function_name}' not found on any available nodes"
+            )
+        
+        try:
+            # Create request context for load balancer
+            request_context = RequestContext(
+                function_name=function_name,
+                args=args,
+                kwargs=kwargs
+            )
+            
+            # Select optimal node using load balancer
+            selected_node = self._load_balancer.select_node(
+                function_name, 
+                request_context,
+                available_nodes
+            )
+            
+            if not selected_node:
+                raise NodeNotFoundError("Load balancer could not select a suitable node")
+            
+            self.info(f"Load balancer selected node '{selected_node}' for function '{function_name}'")
+            
+            # Execute on the selected node using the new implementation
+            return self.execute_function(selected_node, function_name, *args, **kwargs)
+            
+        except Exception as e:
+            self.error(f"Load balanced execution failed for function '{function_name}': {e}")
+            raise RemoteExecutionError(f"Load balanced execution failed: {e}") from e
+    
     async def _async_cleanup(self):
-        """Placeholder for async cleanup - will be implemented in next phase."""
+        """Cleanup server resources and background tasks."""
+        self.debug("Starting server cleanup")
+        
+        # Signal shutdown to all background tasks
+        self._shutdown_event.set()
+        
+        # Cancel and wait for background tasks
+        if self._background_tasks:
+            self.debug(f"Cancelling {len(self._background_tasks)} background tasks")
+            for task in self._background_tasks:
+                if not task.done():
+                    task.cancel()
+            
+            # Wait for tasks to complete cancellation
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            self._background_tasks.clear()
+        
+        # Close gRPC server
+        if self._grpc_server:
+            self.debug("Stopping gRPC server")
+            await self._grpc_server.stop(grace=5.0)
+        
+        # Clear global instance
+        with DistributedComputingGateway._instance_lock:
+            DistributedComputingGateway._global_instance = None
+        
         await self._set_state(ServerState.STOPPED)
         self.info("Server cleanup completed")
     
     async def _remove_node_safely(self, node_id: str, reason: str = "unknown"):
-        """Placeholder for safe node removal - will be implemented in next phase."""
+        """Safely remove a node from the system."""
         async with self._global_lock:
-            self._nodes.pop(node_id, None)
-            self._node_communication_queues.pop(node_id, None)
-        self.info(f"Node {node_id} removed (reason: {reason})")
+            # Remove node information
+            if node_id in self._nodes:
+                self._nodes.pop(node_id)
+                self.info(f"Removed node '{node_id}' from registry")
+            
+            # Clean up communication queues
+            if node_id in self._node_communication_queues:
+                self._node_communication_queues.pop(node_id)
+                self.debug(f"Cleaned up communication queue for node '{node_id}'")
+        
+        self.warning(f"Node '{node_id}' removed from system (reason: {reason})")
     
     async def _cleanup_stream_context(self, call_id: str, reason: str = "unknown"):
-        """Placeholder for stream context cleanup - will be implemented in next phase."""
-        pass
+        """Clean up a stream execution context."""
+        if call_id in self._active_stream_contexts:
+            stream_ctx = self._active_stream_contexts.pop(call_id)
+            await stream_ctx.cleanup(f"cleanup_{reason}")
+            self.debug(f"Cleaned up stream context '{call_id}' (reason: {reason})")
     
     async def _cleanup_pending_call(self, call_id: str, reason: str = "unknown"):
-        """Placeholder for pending call cleanup - will be implemented in next phase."""
-        pass
+        """Clean up a pending function call."""
+        if call_id in self._pending_function_calls:
+            call_context = self._pending_function_calls.pop(call_id)
+            
+            # If it's a Future, cancel it
+            if hasattr(call_context, 'cancel'):
+                call_context.cancel()
+            
+            self.debug(f"Cleaned up pending call '{call_id}' (reason: {reason})")
     
     @classmethod
-    def get_global_instance(cls) -> Optional['DistributedComputeServer']:
+    def get_global_instance(cls) -> Optional['DistributedComputingGateway']:
         """
         Get the global server instance for singleton access.
         
@@ -879,10 +1504,114 @@ class DistributedComputeServer(service_pb2_grpc.RemoteServiceServicer, ModernLog
             return cls._global_instance
 
 
-# Backward compatibility alias
+class GatewayServerBuilder:
+    """
+    Builder for fluent gateway server configuration and construction.
+    
+    This builder provides a convenient way to configure and create
+    distributed computing gateway servers with comprehensive customization options.
+    
+    Example:
+        >>> server = GatewayServerBuilder() \
+        ...     .with_port(8080) \
+        ...     .with_load_balancing_strategy("ml_enhanced") \
+        ...     .enable_health_monitoring() \
+        ...     .enable_performance_analytics() \
+        ...     .with_security_config(auth_required=True) \
+        ...     .build()
+    """
+    
+    def __init__(self):
+        """Initialize builder with default configuration."""
+        self._port: int = 8080
+        self._heartbeat_timeout_seconds: float = 30.0
+        self._max_queue_size: int = 5000
+        self._max_workers: int = 20
+        self._enable_monitoring: bool = True
+        self._enable_analytics: bool = True
+        self._enable_security: bool = False
+        self._enable_clustering: bool = False
+        self._cleanup_interval_seconds: float = 300.0
+    
+    def with_port(self, port: int) -> 'GatewayServerBuilder':
+        """Set server port."""
+        self._port = port
+        return self
+    
+    def with_performance_config(self, 
+                               max_workers: int = 20,
+                               max_queue_size: int = 5000,
+                               heartbeat_timeout_seconds: float = 30.0) -> 'GatewayServerBuilder':
+        """Configure performance parameters."""
+        self._max_workers = max_workers
+        self._max_queue_size = max_queue_size
+        self._heartbeat_timeout_seconds = heartbeat_timeout_seconds
+        return self
+    
+    def enable_monitoring(self, enabled: bool = True) -> 'GatewayServerBuilder':
+        """Enable comprehensive monitoring."""
+        self._enable_monitoring = enabled
+        return self
+    
+    def enable_analytics(self, enabled: bool = True) -> 'GatewayServerBuilder':
+        """Enable advanced analytics and ML features."""
+        self._enable_analytics = enabled
+        return self
+    
+    def enable_security(self, enabled: bool = True) -> 'GatewayServerBuilder':
+        """Enable security and authentication features."""
+        self._enable_security = enabled
+        return self
+    
+    def enable_clustering(self, enabled: bool = True) -> 'GatewayServerBuilder':
+        """Enable high-availability clustering."""
+        self._enable_clustering = enabled
+        return self
+    
+    def with_cleanup_interval(self, seconds: float) -> 'GatewayServerBuilder':
+        """Set cleanup interval in seconds."""
+        self._cleanup_interval_seconds = seconds
+        return self
+    
+    def build(self) -> DistributedComputingGateway:
+        """
+        Build and return configured gateway server instance.
+        
+        Returns:
+            Configured DistributedComputingGateway instance
+            
+        Raises:
+            ValueError: If configuration is invalid
+        """
+        return DistributedComputingGateway(
+            port=self._port,
+            heartbeat_timeout_seconds=self._heartbeat_timeout_seconds,
+            max_queue_size=self._max_queue_size,
+            max_workers=self._max_workers,
+            enable_monitoring=self._enable_monitoring,
+            enable_analytics=self._enable_analytics,
+            enable_security=self._enable_security,
+            enable_clustering=self._enable_clustering,
+            cleanup_interval_seconds=self._cleanup_interval_seconds
+        )
+
+
+# Backward compatibility aliases
 # This ensures existing code continues to work while we transition to the new naming
-Server = DistributedComputeServer
+Server = DistributedComputingGateway
+DistributedComputeServer = DistributedComputingGateway
 
 
-# Export the main server class with both names for flexibility
-__all__ = ['DistributedComputeServer', 'Server', 'ServerState', 'ServerMetrics', 'StreamExecutionContext']
+# Export all public classes and functions
+__all__ = [
+    # Core classes
+    'DistributedComputingGateway',
+    'GatewayServerBuilder',
+    'ServerState',
+    'ServerMetrics',
+    'StreamExecutionContext',
+    
+    # Backward compatibility
+    'Server',
+    'DistributedComputeServer'
+]

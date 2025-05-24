@@ -36,6 +36,8 @@ class NodeStatus(Enum):
     INITIALIZING = "initializing"
     ERROR = "error"
     MAINTENANCE = "maintenance"
+    ONLINE = "online"
+    OFFLINE = "offline"
 
 
 class FunctionType(Enum):
@@ -102,6 +104,7 @@ class FunctionInfo:
         last_called: Timestamp of most recent invocation
         call_count: Total number of times function has been called
         average_execution_time: Running average of execution time in seconds
+        context_data: Additional metadata and configuration data
     """
     name: str
     callable: Optional[Callable] = None
@@ -115,6 +118,7 @@ class FunctionInfo:
     last_called: Optional[datetime] = None
     call_count: int = 0
     average_execution_time: float = 0.0
+    context_data: Dict[str, Any] = field(default_factory=dict)
     
     # Legacy compatibility properties
     @property
@@ -166,6 +170,29 @@ class FunctionInfo:
                 return False
         
         return True
+    
+    def set_context_data(self, key: str, value: Any):
+        """
+        Set additional context data for this function.
+        
+        Args:
+            key: Context data key
+            value: Context data value
+        """
+        self.context_data[key] = value
+    
+    def get_context_data(self, key: str, default: Any = None) -> Any:
+        """
+        Get context data by key.
+        
+        Args:
+            key: Context data key
+            default: Default value if key not found
+            
+        Returns:
+            Context data value or default
+        """
+        return self.context_data.get(key, default)
 
 
 @dataclass
@@ -242,6 +269,28 @@ class NodeHealthMetrics:
             self.gpu_temperature_celsius < max_gpu_temp and
             self.network_latency_ms < max_latency
         )
+    
+    def update_metrics(self, cpu_usage: float = None, memory_usage: float = None, 
+                      gpu_usage: float = None, active_connections: int = None):
+        """
+        Update health metrics with new values.
+        
+        Args:
+            cpu_usage: CPU usage percentage
+            memory_usage: Memory usage percentage
+            gpu_usage: GPU usage percentage
+            active_connections: Number of active connections
+        """
+        if cpu_usage is not None:
+            self.cpu_usage_percent = cpu_usage
+        if memory_usage is not None:
+            self.memory_usage_percent = memory_usage
+        if gpu_usage is not None:
+            self.gpu_usage_percent = gpu_usage
+        if active_connections is not None:
+            self.active_connections = active_connections
+        
+        self.last_updated = datetime.now()
 
 
 @dataclass

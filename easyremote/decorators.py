@@ -3,7 +3,6 @@ import functools
 from typing import Optional, Callable, Any, Union, TypeVar, cast
 from .core.utils.exceptions import RemoteExecutionError
 from .core.nodes.server import Server
-from .core.load_balancing.strategies import RequestContext, LoadBalancingConfig
 import asyncio
 
 
@@ -30,24 +29,33 @@ class RemoteFunction:
         functools.update_wrapper(self, func)
 
     def __call__(self, *args, **kwargs) -> Any:
-        server = Server.current()
+        server = Server.get_global_instance()
+        if server is None:
+            raise RemoteExecutionError("No EasyRemote server instance available. Please start a server first.")
+        
         try:
             if self.load_balancing and self.load_balancing is not False:
                 # Use load balancing
-                result = server.execute_function_with_load_balancing(
-                    self.function_name,
-                    self.load_balancing,
-                    *args,
-                    **kwargs
-                )
+                if hasattr(server, 'execute_function_with_load_balancing'):
+                    result = server.execute_function_with_load_balancing(
+                        self.function_name,
+                        self.load_balancing,
+                        *args,
+                        **kwargs
+                    )
+                else:
+                    raise RemoteExecutionError("Server does not support load balancing execution")
             else:
                 # Direct node execution
-                result = server.execute_function(
-                    self.node_id,
-                    self.function_name,
-                    *args,
-                    **kwargs
-                )
+                if hasattr(server, 'execute_function'):
+                    result = server.execute_function(
+                        self.node_id,
+                        self.function_name,
+                        *args,
+                        **kwargs
+                    )
+                else:
+                    raise RemoteExecutionError("Server does not support direct function execution")
             if self.is_stream:
                 return result
             return result
@@ -55,31 +63,40 @@ class RemoteFunction:
             raise RemoteExecutionError(str(e))
 
     async def __call_async__(self, *args, **kwargs) -> Any:
-        server = Server.current()
+        server = Server.get_global_instance()
+        if server is None:
+            raise RemoteExecutionError("No EasyRemote server instance available. Please start a server first.")
+            
         try:
             loop = asyncio.get_running_loop()
             if self.load_balancing and self.load_balancing is not False:
                 # Use load balancing
-                result = await loop.run_in_executor(
-                    None,
-                    lambda: server.execute_function_with_load_balancing(
-                        self.function_name,
-                        self.load_balancing,
-                        *args,
-                        **kwargs
+                if hasattr(server, 'execute_function_with_load_balancing'):
+                    result = await loop.run_in_executor(
+                        None,
+                        lambda: server.execute_function_with_load_balancing(
+                            self.function_name,
+                            self.load_balancing,
+                            *args,
+                            **kwargs
+                        )
                     )
-                )
+                else:
+                    raise RemoteExecutionError("Server does not support load balancing execution")
             else:
                 # Direct node execution
-                result = await loop.run_in_executor(
-                    None,
-                    lambda: server.execute_function(
-                        self.node_id,
-                        self.function_name,
-                        *args,
-                        **kwargs
+                if hasattr(server, 'execute_function'):
+                    result = await loop.run_in_executor(
+                        None,
+                        lambda: server.execute_function(
+                            self.node_id,
+                            self.function_name,
+                            *args,
+                            **kwargs
+                        )
                     )
-                )
+                else:
+                    raise RemoteExecutionError("Server does not support direct function execution")
             if self.is_stream:
                 return result
             return result

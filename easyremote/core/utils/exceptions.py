@@ -554,6 +554,87 @@ class NoAvailableNodesError(EasyRemoteError):
             req_str = ", ".join(f"{k}={v}" for k, v in requirements.items())
             self.info(f"    ↳ [cyan]Requirements[/cyan]: {req_str}")
 
+
+class LoadBalancingError(EasyRemoteError):
+    """
+    Exception raised when load balancing operations fail.
+    
+    This error occurs when the load balancer encounters issues in
+    routing requests, selecting nodes, or managing load distribution.
+    """
+    
+    def __init__(
+        self,
+        message: str,
+        strategy: Optional[str] = None,
+        available_nodes: Optional[int] = None,
+        cause: Optional[Exception] = None
+    ):
+        """
+        Initialize LoadBalancingError with load balancing context.
+        
+        Args:
+            message: Error message
+            strategy: Load balancing strategy being used
+            available_nodes: Number of nodes available for load balancing
+            cause: The underlying exception
+        """
+        # Prepare additional context
+        additional_data = {}
+        if strategy:
+            additional_data['strategy'] = strategy
+        if available_nodes is not None:
+            additional_data['available_nodes'] = available_nodes
+        
+        super().__init__(message, cause=cause, additional_data=additional_data)
+        
+        # Additional logging for debugging
+        if strategy:
+            self.info(f"    ↳ [cyan]Strategy[/cyan]: {strategy}")
+        if available_nodes is not None:
+            self.info(f"    ↳ [cyan]Available nodes[/cyan]: {available_nodes}")
+
+
+class TimeoutError(EasyRemoteError):
+    """
+    Exception raised when operations exceed their timeout limit.
+    
+    This error occurs when an operation takes longer than the specified
+    timeout duration, helping prevent indefinite blocking.
+    """
+    
+    def __init__(
+        self,
+        message: str,
+        timeout_seconds: Optional[float] = None,
+        operation: Optional[str] = None,
+        cause: Optional[Exception] = None
+    ):
+        """
+        Initialize TimeoutError with timeout-specific information.
+        
+        Args:
+            message: Error message
+            timeout_seconds: The timeout value that was exceeded
+            operation: Name of the operation that timed out
+            cause: The underlying exception
+        """
+        # Prepare additional context
+        additional_data = {}
+        if timeout_seconds is not None:
+            additional_data['timeout_seconds'] = timeout_seconds
+        if operation:
+            additional_data['operation'] = operation
+        
+        super().__init__(message, cause=cause, additional_data=additional_data)
+        
+        # Additional logging for debugging
+        if timeout_seconds is not None:
+            self.info(f"    ↳ [cyan]Timeout[/cyan]: {timeout_seconds}s")
+        if operation:
+            self.info(f"    ↳ [cyan]Operation[/cyan]: {operation}")
+
+
 class ExceptionFormatter:
     """
     Utility class for formatting exception information in various formats.

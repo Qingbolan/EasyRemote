@@ -9,6 +9,28 @@ message FunctionSpec {
     bool is_generator = 3;
 }
 
+// Node information message for registration
+message NodeInfo {
+    string node_id = 1;
+    string status = 2;
+    repeated FunctionSpec functions = 3;
+    int32 max_concurrent_executions = 4;
+    int32 current_executions = 5;
+    string version = 6;
+    repeated string capabilities = 7;
+    string location = 8;
+}
+
+// Heartbeat message for maintaining connection
+message HeartbeatMessage {
+    string node_id = 1;
+    int64 timestamp = 2;
+    float cpu_usage = 3;
+    float memory_usage = 4;
+    float gpu_usage = 5;
+    int32 active_connections = 6;
+}
+
 message RegisterRequest {
     string node_id = 1;
     repeated FunctionSpec functions = 2;
@@ -61,4 +83,6 @@ message ControlMessage {
 
 service RemoteService {
     rpc ControlStream(stream ControlMessage) returns (stream ControlMessage);
+    rpc RegisterNode(NodeInfo) returns (RegisterResponse);
+    rpc SendHeartbeat(HeartbeatMessage) returns (HeartbeatResponse);
 }

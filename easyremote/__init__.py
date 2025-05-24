@@ -4,7 +4,7 @@ from .core import ComputeNode
 from .core import Client
 from .decorators import remote
 from .core import get_performance_monitor
-from .core.load_balancing import (
+from .core.balancing import (
     LoadBalancer,
     LoadBalancingStrategy,
     RequestContext,

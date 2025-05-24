@@ -1,255 +1,269 @@
-# EasyRemote - 极简分布式计算框架
+# EasyRemote: Building the Next-Generation Computing Internet - EasyNet
 
-[![简洁性评分](https://img.shields.io/badge/简洁性评分-100%2F100-brightgreen)](./simplicity_improvement_report.md)
-[![功能完整性](https://img.shields.io/badge/功能完整性-100%25-brightgreen)](#features)
-[![性能提升](https://img.shields.io/badge/性能提升-243%25-blue)](#performance)
-[![学习时间](https://img.shields.io/badge/学习时间-20分钟-green)](#quick-start)
+<div align="center">
 
-**EasyRemote** 是一个极简而强大的分布式计算框架，让分布式计算变得像本地函数调用一样简单。
+![EasyRemote Logo](docs/easyremote-logo.png)
 
-> **"简单是最终的复杂性"** - 达芬奇  
-> 我们成功在功能完整性和简洁性之间找到了完美平衡
+[![PyPI version](https://badge.fury.io/py/easyremote.svg)](https://badge.fury.io/py/easyremote)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python Version](https://img.shields.io/pypi/pyversions/easyremote)]()
 
-## 🎯 核心特性
+> **"Torchrun for the World"**: Enabling any terminal user to mobilize global computing resources with a single command to execute local code.
 
-### ✨ 极简设计 (100分满分)
-- **零配置** - 开箱即用，智能默认值
-- **极简API** - 只需掌握2种调用方式
-- **一键启动** - 4行代码实现分布式计算
-- **20分钟上手** - 从入门到实战
+**🌐 Building the Next-Generation Computing Internet - EasyNet**
 
-### 🚀 强大功能
-- **多节点负载均衡** - 同名函数自动分发
-- **243%性能提升** - 实测验证的效率改善
-- **5种负载均衡策略** - 智能选择最优节点
-- **完整容错机制** - 自动故障转移
+English | [中文](README_ZH.md)
 
-### 🏗️ 清晰架构
-```
-Client ◄─gRPC─► Server ◄─gRPC─► ComputeNode
-(客户端)        (VPS网关)      (计算节点)
-```
+</div>
 
-## 🚀 Quick Start (20分钟上手)
+---
 
-### 方式1: 超级简化版 (4行代码)
+## 🧠 From Private Functions to Global Computing Orchestration Engine
+
+**EasyRemote is not just a Private Function-as-a-Service (Private FaaS) platform—it's our answer to the future of computing:**
+
+> While current cloud computing models are platform-centric, requiring data and code to "go to the cloud" to exchange resources, we believe—  
+> **The next-generation computing network should be terminal-centric, language-interfaced, function-granular, and trust-bounded**.
+
+We call it: **"EasyNet"**.
+
+### 🎯 Core Philosophy: Code as Resource, Device as Node, Execution as Collaboration
+
+EasyRemote is the first-stage implementation of EasyNet, allowing you to:
+
+* **🧠 Define task logic using familiar Python function structures**
+* **🔒 Deploy computing nodes on any device while maintaining privacy, performance, and control**  
+* **🌐 Transform local functions into globally accessible task interfaces through lightweight VPS gateways**
+* **🚀 Eventually launch tasks as simply as using `torchrun`, automatically scheduling to the most suitable resources for execution**
+
+### 💡 Our Paradigm Shift
+
+| Traditional Cloud Computing | **EasyNet Mode** |
+|------------|-------------|
+| Platform-centric | **Terminal-centric** |
+| Code must go to cloud | **Code stays on your device** |
+| Pay for computing power | **Contribute to earn computing power** |
+| Vendor lock-in | **Decentralized collaboration** |
+| Cold start delays | **Always warm** |
+
+---
+
+## 🔭 Current Implementation: Private Function-as-a-Service
+
+### **Quick Experience: Join EasyNet with 12 Lines of Code**
+
 ```python
-from easyremote.simple import quick_start, quick_node, quick_client
+# 1. Start gateway node (any VPS)
+from easyremote import Server
+Server(port=8080).start()
 
-quick_start()                           # 一键启动网关
-node = quick_node()                     # 快速创建节点
-
-@node.register                          # 注册函数 (自动负载均衡)
-def compute_task(data):
-    return f"computed: {data}"
-
-result = quick_client().call("compute_task", "my_data")  # 一行调用
-print(result)  # "computed: my_data"
-```
-
-### 方式2: 标准简化版 (推荐)
-```python
-from easyremote.simple import Server, ComputeNode, Client
-
-# 1. 启动网关
-server = Server().start_background()
-
-# 2. 创建计算节点
-node = ComputeNode()  # 自动生成ID和配置
+# 2. Contribute computing node (your device)
+from easyremote import ComputeNode
+node = ComputeNode("your-gateway:8080")
 
 @node.register
-def train_model(data):
-    return f"trained: {data}"
+def ai_inference(prompt):
+    return your_local_model.generate(prompt)  # Runs on your GPU
 
 node.serve()
 
-# 3. 客户端调用
-with Client() as client:  # 自动连接管理
-    result = client.call("train_model", "sample_data")
-    print(result)
+# 3. Global computing access (anywhere)
+from easyremote import Client
+result = Client("your-gateway:8080").execute("ai_inference", "Hello AI")
 ```
 
-## 📦 安装
+**🎉 Your device has joined EasyNet!**
+
+### **🆚 Comparison with Traditional Cloud Services**
+
+| Feature | AWS Lambda | Google Cloud | **EasyNet Node** |
+|------|------------|--------------|----------------|
+| **Computing Location** | Cloud servers | Cloud servers | **Your device** |
+| **Data Privacy** | Upload to cloud | Upload to cloud | **Never leaves local** |
+| **Computing Cost** | $200+/million calls | $200+/million calls | **$5 gateway fee** |
+| **Hardware Limitations** | Cloud specs | Cloud specs | **Your GPU/CPU** |
+| **Startup Latency** | 100-1000ms | 100-1000ms | **0ms (always online)** |
+
+---
+
+## 📚 Complete Documentation Guide
+
+### 🌐 Multilingual Documentation
+
+#### 🇺🇸 English Documentation
+- **[📖 English Documentation Center](docs/en/README.md)** - Complete English documentation navigation
+
+#### 🇨🇳 Chinese Documentation
+- **[📖 中文文档中心](docs/zh/README.md)** - Complete Chinese documentation navigation
+
+### 🚀 Quick Start
+- **[5-Minute Quick Start](docs/en/user-guide/quick-start.md)** - Fastest way to get started | [中文](docs/zh/user-guide/quick-start.md)
+- **[Installation Guide](docs/en/user-guide/installation.md)** - Detailed installation instructions | [中文](docs/zh/user-guide/installation.md)
+
+### 📖 User Guide
+- **[API Reference](docs/en/user-guide/api-reference.md)** - Complete API documentation | [中文](docs/zh/user-guide/api-reference.md)
+- **[Basic Tutorial](docs/en/tutorials/basic-usage.md)** - Detailed basic tutorial | [中文](docs/zh/tutorials/basic-usage.md)
+- **[Advanced Scenarios](docs/en/tutorials/advanced-scenarios.md)** - Complex application implementation | [中文](docs/zh/tutorials/advanced-scenarios.md)
+
+### 🏗️ Technical Deep Dive
+- **[System Architecture](docs/en/architecture/overview.md)** - Overall architecture design | [中文](docs/zh/architecture/overview.md)
+- **[Deployment Guide](docs/en/tutorials/deployment.md)** - Multi-environment deployment solutions | [中文](docs/zh/tutorials/deployment.md)
+
+### 🔬 Research Materials
+- **[Technical Whitepaper](docs/en/research/whitepaper.md)** - EasyNet theoretical foundation | [中文](docs/zh/research/whitepaper.md)
+- **[Research Proposal](docs/en/research/research-proposal.md)** - Academic research plan | [中文](docs/zh/research/research-proposal.md)
+- **[Project Pitch](docs/en/research/pitch.md)** - Business plan overview | [中文](docs/zh/research/pitch.md)
+
+---
+
+## 🌟 Three Major Breakthroughs of EasyNet
+
+### **1. 🔒 Privacy-First Architecture**
+```python
+@node.register
+def medical_diagnosis(scan_data):
+    # Medical data never leaves your HIPAA-compliant device
+    # But diagnostic services can be securely accessed globally
+    return your_private_ai_model.diagnose(scan_data)
+```
+
+### **2. 💰 Economic Model Reconstruction**
+- **Traditional Cloud Services**: Pay-per-use, costs increase exponentially with scale
+- **EasyNet Model**: Contribute computing power to earn credits, use credits to call others' computing power
+- **Gateway Cost**: $5/month vs traditional cloud $200+/million calls
+
+### **3. 🚀 Consumer Devices Participating in Global AI**
+```python
+# Your gaming PC can provide AI inference services globally
+@node.register
+def image_generation(prompt):
+    return your_stable_diffusion.generate(prompt)
+
+# Your MacBook can participate in distributed training
+@node.register  
+def gradient_computation(batch_data):
+    return your_local_model.compute_gradients(batch_data)
+```
+
+---
+
+## 🎯 Future Vision: Torchrun for the World
+
+### **Phase 1 (Current): Private Function Network**
+- ✅ Peer-to-peer function calls
+- ✅ Privacy-preserving computing
+- ✅ Zero cold-start latency
+
+### **Phase 2 (In Development): Computing Resource Pool**
+- 🔄 Automatic load balancing
+- 🔄 Computing contribution credit system
+- 🔄 Cross-node task orchestration
+
+### **Phase 3 (Planned): Intelligent Scheduling Network**
+- 📋 Automatic task decomposition
+- 📋 Optimal resource matching
+- 📋 Fault tolerance and recovery mechanisms
+
+### **Phase 4 (Vision): Global Computing Operating System**
+```bash
+# Future usage paradigm
+$ easynet run --task "train_llm" --data "my_dataset" --nodes 1000
+# Automatically schedule 1000 global nodes to collaboratively train your model
+```
+
+---
+
+## 🔬 Technical Architecture: Decentralization + Edge Computing
+
+### **Network Topology**
+```
+🌍 Global clients
+    ↓
+☁️ Lightweight gateway cluster (routing only, no computing)
+    ↓
+💻 Personal computing nodes (actual execution)
+    ↓
+🔗 Peer-to-peer collaboration network
+```
+
+### **Core Technology Stack**
+- **Communication Protocol**: gRPC + Protocol Buffers
+- **Secure Transport**: End-to-end encryption
+- **Load Balancing**: Intelligent resource awareness
+- **Fault Tolerance**: Automatic retry and recovery
+
+---
+
+## 🌊 Join the Computing Revolution
+
+### **🔥 Why EasyNet Will Change Everything**
+
+**Limitations of Traditional Models**:
+- 💸 Cloud service costs grow exponentially with scale
+- 🔒 Data must be uploaded to third-party servers
+- ⚡ Cold starts and network latency limit performance
+- 🏢 Locked into major cloud service providers
+
+**EasyNet's Breakthroughs**:
+- 💰 **Computing Sharing Economy**: Contribute idle resources, gain global computing power
+- 🔐 **Privacy by Design**: Data never leaves your device
+- 🚀 **Edge-First**: Zero latency, optimal performance
+- 🌐 **Decentralized**: No single points of failure, no vendor lock-in
+
+### **🎯 Our Mission**
+
+> **Redefining the future of computing**: From a few cloud providers monopolizing computing power to every device being part of the computing network.
+
+### **🚀 Join Now**
+
+```bash
+# Become an early node in EasyNet
+pip install easyremote
+
+# Contribute your computing power
+python -c "
+from easyremote import ComputeNode
+node = ComputeNode('demo.easynet.io:8080')
+@node.register
+def hello_world(): return 'Hello from my device!'
+node.serve()
+"
+```
+
+---
+
+## 🏗️ Developer Ecosystem
+
+| Role | Contribution | Benefits |
+|------|-------------|----------|
+| **Computing Providers** | Idle GPU/CPU time | Computing credits/token rewards |
+| **Application Developers** | Innovative algorithms and applications | Global computing resource access |
+| **Gateway Operators** | Network infrastructure | Routing fee sharing |
+| **Ecosystem Builders** | Tools and documentation | Community governance rights |
+
+---
+
+## 📞 Join the Community
+
+* **🎯 Technical Discussions**: [GitHub Issues](https://github.com/Qingbolan/EasyCompute/issues)
+* **💬 Community Chat**: [GitHub Discussions](https://github.com/Qingbolan/EasyCompute/discussions)
+* **📧 Business Collaboration**: [silan.hu@u.nus.edu](mailto:silan.hu@u.nus.edu)
+* **👨‍💻 Project Founder**: [Silan Hu](https://github.com/Qingbolan) - NUS PhD Candidate
+
+---
+
+<div align="center">
+
+## 🌟 "The future of software isn't deployed on the cloud, but runs on your system + EasyNet"
+
+**🚀 Ready to join the computing revolution?**
 
 ```bash
 pip install easyremote
 ```
 
-## 🎯 真实世界示例
+**Don't just see it as a distributed function tool — it's a prototype running on old-world tracks but heading towards a new-world destination.**
 
-### AI模型训练分布式系统
-```python
-from easyremote.simple import quick_start, quick_node, quick_client
+*⭐ If you believe in this new worldview, please give us a star!*
 
-# 启动系统
-quick_start()
-
-# GPU节点1
-gpu_node_1 = quick_node()
-@gpu_node_1.register
-def train_model(model_config):
-    # 模拟GPU训练
-    return {"accuracy": 0.95, "gpu": "RTX-4090"}
-
-# GPU节点2  
-gpu_node_2 = quick_node()
-@gpu_node_2.register
-def train_model(model_config):  # 同名函数，自动负载均衡
-    # 模拟GPU训练
-    return {"accuracy": 0.93, "gpu": "RTX-3080"}
-
-# 客户端提交训练任务
-client = quick_client()
-for i in range(5):
-    result = client.call("train_model", {"epoch": i})
-    print(f"Training {i}: {result}")
-```
-
-**效果**:
-- ✅ 多GPU自动负载均衡
-- ✅ 零配置分布式训练  
-- ✅ 代码量极少
-- ✅ 立即可用
-
-## 🏗️ 双版本架构
-
-为了满足不同用户需求，EasyRemote提供两个版本：
-
-### 简化版 (推荐新手)
-```python
-from easyremote.simple import Client, Server, ComputeNode
-# 零配置，自动优化，20分钟上手
-```
-
-**适用场景**:
-- 🚀 快速原型开发
-- 📚 学习和教学
-- 💡 简单分布式任务
-- 👶 初学者友好
-
-### 完整版 (高级用户)
-```python
-from easyremote import Client, Server, ComputeNode
-# 支持所有高级特性和精细配置
-```
-
-**适用场景**:
-- ✅ 复杂企业应用
-- ✅ 高级配置需求
-- ✅ 精细控制场景
-- ✅ 大规模分布式系统
-
-## 📊 性能对比
-
-| 场景 | 单节点 | EasyRemote | 提升 |
-|------|--------|------------|------|
-| **3节点训练任务** | 120秒 | 35秒 | **243%** |
-| **响应时间** | 200ms | 50ms | **75%** |
-| **资源利用率** | 45% | 87% | **93%** |
-| **开发时间** | 23天 | 3天 | **87%** |
-
-## 🎯 简洁性改进成果
-
-我们成功将EasyRemote的简洁性从 **81分** 提升到 **100分满分**：
-
-| 指标 | 改进前 | 改进后 | 提升 |
-|------|--------|--------|------|
-| **简洁性评分** | 81分 | **100分** | **+19分** |
-| **API复杂度** | 5种方式 | **2种方式** | **60%简化** |
-| **学习时间** | 60分钟 | **20分钟** | **67%减少** |
-| **必需配置** | 2个 | **0个** | **100%简化** |
-| **代码行数** | 7行 | **4行** | **43%减少** |
-
-## 📚 更多示例
-
-### 负载均衡策略
-```python
-# 智能负载均衡
-result = client.call_with_config(
-    "train_model",
-    {"strategy": "smart_adaptive"},
-    data
-)
-
-# 成本感知负载均衡
-result = client.call_with_config(
-    "expensive_task",
-    {"strategy": "cost_aware", "cost_limit": 5.0},
-    data
-)
-```
-
-### 多节点同名函数
-```python
-# 多个节点可以注册相同的函数名
-# 客户端调用时自动负载均衡到不同节点
-
-# 节点1
-@node1.register(load_balancing=True)
-def process_data(data):
-    return f"processed by node1: {data}"
-
-# 节点2
-@node2.register(load_balancing=True)
-def process_data(data):  # 同名函数
-    return f"processed by node2: {data}"
-
-# 客户端调用 - 自动分发
-result = client.call("process_data", "test")
-# 可能返回: "processed by node1: test" 或 "processed by node2: test"
-```
-
-## 🛠️ 高级功能
-
-<details>
-<summary>点击查看高级功能</summary>
-
-### 负载均衡策略
-- **Round Robin**: 轮询分配
-- **Resource Aware**: 资源感知选择
-- **Latency Based**: 延迟优化
-- **Cost Aware**: 成本感知
-- **Smart Adaptive**: 智能自适应
-
-### 节点管理
-```python
-# 查看可用节点
-nodes = client.list_nodes()
-
-# 获取节点状态
-status = client.get_node_status("node-id")
-
-# 指定节点调用
-result = client.call_node("specific-node", "function", args)
-```
-
-### 流式处理
-```python
-# 流式函数调用
-async for chunk in client.call_stream("stream_process", data):
-    print(f"Received: {chunk}")
-```
-
-</details>
-
-## 🤝 贡献
-
-欢迎贡献代码、报告bug或提出建议！
-
-1. Fork 项目
-2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
-3. 提交更改 (`git commit -m 'Add amazing feature'`)
-4. 推送到分支 (`git push origin feature/amazing-feature`)
-5. 创建 Pull Request
-
-## 📄 许可证
-
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
-
-## 🎉 致谢
-
-感谢所有贡献者和用户的支持！
-
----
-
-**EasyRemote** - 让分布式计算变得简单而强大 🚀
+</div> 
