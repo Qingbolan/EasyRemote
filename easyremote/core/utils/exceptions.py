@@ -105,6 +105,11 @@ class ErrorCodeRegistry:
             'code': 'E005',
             'severity': ErrorSeverity.HIGH,
             'category': ErrorCategory.EXECUTION
+        },
+        'NoAvailableNodesError': {
+            'code': 'E006',
+            'severity': ErrorSeverity.HIGH,
+            'category': ErrorCategory.SYSTEM
         }
     }
     
@@ -498,9 +503,56 @@ class RemoteExecutionError(EasyRemoteError):
         # Additional logging for debugging
         if execution_time is not None:
             self.info(f"    ↳ [cyan]Execution time[/cyan]: {execution_time:.2f}s")
-        if return_code is not None:
-            self.info(f"    ↳ [cyan]Return code[/cyan]: {return_code}")
 
+
+class NoAvailableNodesError(EasyRemoteError):
+    """
+    Exception raised when no nodes are available to handle a request.
+    
+    This error occurs when the load balancer cannot find any suitable
+    nodes to execute a function, either due to all nodes being offline,
+    overloaded, or not meeting the requirements.
+    """
+    
+    def __init__(
+        self,
+        message: str,
+        function_name: Optional[str] = None,
+        requirements: Optional[Dict[str, Any]] = None,
+        total_nodes: Optional[int] = None,
+        healthy_nodes: Optional[int] = None,
+        cause: Optional[Exception] = None
+    ):
+        """
+        Initialize NoAvailableNodesError with load balancing context.
+        
+        Args:
+            message: Error message
+            function_name: Name of the function that couldn't be executed
+            requirements: Requirements that couldn't be met
+            total_nodes: Total number of nodes in the system
+            healthy_nodes: Number of healthy nodes available
+            cause: The underlying exception
+        """
+        # Prepare additional context
+        additional_data = {}
+        if function_name:
+            additional_data['function_name'] = function_name
+        if requirements:
+            additional_data['requirements'] = requirements
+        if total_nodes is not None:
+            additional_data['total_nodes'] = total_nodes
+        if healthy_nodes is not None:
+            additional_data['healthy_nodes'] = healthy_nodes
+        
+        super().__init__(message, cause=cause, additional_data=additional_data)
+        
+        # Additional logging for debugging
+        if total_nodes is not None and healthy_nodes is not None:
+            self.info(f"    ↳ [cyan]Node status[/cyan]: {healthy_nodes}/{total_nodes} healthy")
+        if requirements:
+            req_str = ", ".join(f"{k}={v}" for k, v in requirements.items())
+            self.info(f"    ↳ [cyan]Requirements[/cyan]: {req_str}")
 
 class ExceptionFormatter:
     """

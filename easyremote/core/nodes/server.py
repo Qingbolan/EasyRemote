@@ -9,7 +9,7 @@ from concurrent import futures
 import uuid
 
 from ..utils.logger import ModernLogger
-
+from ..load_balancing import LoadBalancer, RequestContext
 from ..data import NodeInfo, FunctionInfo
 from ..utils.exceptions import (
     NodeNotFoundError,
@@ -80,9 +80,9 @@ class Server(service_pb2_grpc.RemoteServiceServicer, ModernLogger):
         self._loop = None
         self._monitor_thread = None
         self._cleanup_task = None
-        
         self._serializer = Serializer()
-        
+        # Initialize load balancer
+        self.load_balancer = LoadBalancer(self)
         Server._instance = self
         self.debug("Server instance initialized")
 
@@ -689,3 +689,53 @@ class Server(service_pb2_grpc.RemoteServiceServicer, ModernLogger):
         if Server._instance is None:
             raise EasyRemoteError("No Server instance available")
         return Server._instance
+    
+    def execute_function_with_load_balancing(self, function_name: str, balancing_config, *args, **kwargs):
+        """使用负载均衡执行远程函数"""
+        # 创建请求上下文
+        request_context = RequestContext(
+            function_name=function_name,
+            data_size=len(str(args)) + len(str(kwargs)),  # 简单估算数据大小
+            complexity_score=balancing_config.get("complexity_score", 1.0) if isinstance(balancing_config, dict) else 1.0,
+            requirements=balancing_config.get("requirements") if isinstance(balancing_config, dict) else None,
+            timeout=balancing_config.get("timeout") if isinstance(balancing_config, dict) else None,
+            cost_limit=balancing_config.get("cost_limit") if isinstance(balancing_config, dict) else None
+        )
+        
+        # 准备负载均衡配置
+        if isinstance(balancing_config, bool):
+            lb_config = {"strategy": "resource_aware"} if balancing_config else {"strategy": "round_robin"}
+        elif isinstance(balancing_config, str):
+            lb_config = {"strategy": balancing_config}
+        elif isinstance(balancing_config, dict):
+            lb_config = balancing_config
+        else:
+            lb_config = {"strategy": "resource_aware"}
+        
+        if not self._loop or self._loop.is_closed():
+            raise EasyRemoteError("Server not started or loop is closed")
+        
+        # 使用负载均衡器选择最优节点
+        try:
+            if not hasattr(self, 'load_balancer'):
+                # 如果没有负载均衡器，创建一个
+                self.load_balancer = LoadBalancer(self)
+                
+            selected_node = asyncio.run_coroutine_threadsafe(
+                self.load_balancer.route_request(function_name, request_context, lb_config),
+                self._loop
+            ).result(timeout=10)
+            
+            self.debug(f"Load balancer selected node {selected_node} for function {function_name}")
+            
+            # 执行函数
+            return self.execute_function(selected_node, function_name, *args, **kwargs)
+            
+        except Exception as e:
+            self.error(f"Load balancing execution failed: {e}")
+            raise RemoteExecutionError(
+                function_name=function_name,
+                node_id="load_balanced",
+                message=f"Load balancing execution failed: {str(e)}",
+                cause=e
+            ) from e

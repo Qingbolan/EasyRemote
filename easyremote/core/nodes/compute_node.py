@@ -94,24 +94,48 @@ class ComputeNode(ModernLogger):
         stream: bool = False,
         async_func: bool = False,
         node_id: Optional[str] = None,
-        timeout: Optional[float] = None
+        timeout: Optional[float] = None,
+        load_balancing: bool = False,
+        max_concurrent: int = 1,
+        cost_aware: bool = False
     ) -> Callable:
         """
-        注册一个远程函数。
+        注册一个远程函数，支持负载均衡配置。
+        
+        Args:
+            func: 要注册的函数
+            name: 函数名称，默认使用函数的__name__
+            stream: 是否为流式函数
+            async_func: 是否为异步函数
+            node_id: 节点ID
+            timeout: 超时时间
+            load_balancing: 是否启用负载均衡
+            max_concurrent: 最大并发数
+            cost_aware: 是否启用成本感知
         """
         def decorator(f: Callable) -> Callable:
             func_name = name or f.__name__
             func_info = analyze_function(f)
 
-            self._functions[func_name] = FunctionInfo(
+            # 扩展FunctionInfo以支持负载均衡信息
+            function_info = FunctionInfo(
                 name=func_name,
                 callable=f,
                 is_async=async_func or func_info.is_async,
                 is_generator=stream or func_info.is_generator,
                 node_id=node_id or self.node_id
             )
+            
+            # 添加负载均衡相关属性
+            function_info.load_balancing = load_balancing
+            function_info.max_concurrent = max_concurrent
+            function_info.cost_aware = cost_aware
+            function_info.timeout = timeout
 
-            self.info(f"Registered function: {func_name} (async={self._functions[func_name].is_async}, stream={self._functions[func_name].is_generator})")
+            self._functions[func_name] = function_info
+
+            self.info(f"Registered function: {func_name} (async={function_info.is_async}, "
+                     f"stream={function_info.is_generator}, load_balancing={load_balancing})")
             return f
 
         if func is None:
