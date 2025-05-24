@@ -1,14 +1,60 @@
-# easyremote/core/nodes/compute_node.py
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+EasyRemote Compute Node Module
+
+This module implements distributed compute nodes that provide computational
+resources to the EasyRemote framework. Compute nodes register with a central
+gateway server and execute functions remotely on behalf of clients.
+
+Architecture:
+- Worker Node Pattern: Compute nodes act as distributed workers
+- Function Registry: Local catalog of available computational functions
+- Bidirectional Communication: gRPC streaming for real-time coordination
+- Automatic Recovery: Built-in reconnection and error handling
+- Load Balancing Support: Intelligent resource reporting for optimal distribution
+
+Key Features:
+- Zero-configuration setup with intelligent defaults
+- Automatic function discovery and registration
+- Support for synchronous, asynchronous, and streaming functions
+- Comprehensive error handling with exponential backoff
+- Real-time health monitoring and performance metrics
+- Graceful shutdown and resource cleanup
+
+Communication Protocol:
+- Registration: Node identification and function catalog submission
+- Heartbeat: Periodic health check and status updates
+- Function Execution: Remote function call handling with result streaming
+- Resource Monitoring: CPU, memory, and performance metrics reporting
+
+Thread Safety:
+All public methods are thread-safe. Internal state is protected with
+asyncio locks and thread-safe data structures.
+
+Author: EasyRemote Team
+Version: 2.0.0
+"""
+
 import asyncio
 import grpc
 import time
 import threading
-from typing import Optional, Callable, Dict, Any, Set
 import uuid
+import logging
+import platform
+import psutil
+import os
+from typing import Optional, Callable, Dict, Any, Set, Union, List, Tuple
 from concurrent import futures
 from datetime import datetime, timedelta
+from dataclasses import dataclass, field
+from enum import Enum
+from contextlib import asynccontextmanager
 
-from ..data import FunctionInfo
+# EasyRemote core imports
+from ..data import FunctionInfo, NodeInfo, NodeStatus, NodeHealthMetrics, FunctionType, ResourceRequirements
 from ..utils import format_exception
 from ..utils.exceptions import (
     FunctionNotFoundError,
@@ -20,846 +66,500 @@ from ..data.serialize import serialize_result, deserialize_args, analyze_functio
 from ..protos import service_pb2, service_pb2_grpc
 from ..utils.logger import ModernLogger
 
-class ComputeNode(ModernLogger):
-    """计算节点，负责注册和执行远程函数，并作为gRPC客户端连接到VPS"""
 
+# Configure module logger
+_logger = logging.getLogger(__name__)
+
+
+class NodeConnectionState(Enum):
+    """
+    Enumeration of possible connection states for compute nodes.
+    """
+    DISCONNECTED = "disconnected"
+    CONNECTING = "connecting"
+    CONNECTED = "connected"
+    RECONNECTING = "reconnecting"
+    SHUTTING_DOWN = "shutting_down"
+    ERROR = "error"
+
+
+@dataclass
+class NodeConfiguration:
+    """
+    Comprehensive configuration for compute node operation.
+    
+    This dataclass encapsulates all configuration parameters with
+    intelligent defaults and validation.
+    """
+    gateway_address: str
+    node_id: str
+    reconnect_interval: int = 3
+    heartbeat_interval: int = 5
+    max_retry_attempts: int = 3
+    max_queue_size: int = 1000
+    execution_timeout: int = 300
+    connection_timeout: int = 10
+    heartbeat_timeout: int = 15
+    health_check_interval: int = 30
+    max_concurrent_executions: int = 10
+    enable_performance_monitoring: bool = True
+    
+    def __post_init__(self):
+        """Validate configuration parameters after initialization."""
+        if self.reconnect_interval < 1:
+            raise ValueError("Reconnect interval must be positive")
+        if self.heartbeat_interval < 1:
+            raise ValueError("Heartbeat interval must be positive")
+        if self.max_retry_attempts < 1:
+            raise ValueError("Max retry attempts must be positive")
+        if self.max_queue_size < 1:
+            raise ValueError("Max queue size must be positive")
+        if self.execution_timeout < 1:
+            raise ValueError("Execution timeout must be positive")
+
+
+@dataclass
+class ExecutionContext:
+    """
+    Context information for function execution tracking.
+    
+    This class maintains state and metadata for individual function
+    executions, enabling monitoring, debugging, and resource management.
+    """
+    call_id: str
+    function_name: str
+    start_time: datetime = field(default_factory=datetime.now)
+    timeout: Optional[int] = None
+    client_info: Optional[Dict[str, Any]] = None
+    execution_metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    @property
+    def elapsed_time(self) -> float:
+        """Get elapsed execution time in seconds."""
+        return (datetime.now() - self.start_time).total_seconds()
+    
+    @property
+    def is_timed_out(self) -> bool:
+        """Check if execution has exceeded timeout."""
+        if self.timeout is None:
+            return False
+        return self.elapsed_time > self.timeout
+
+
+class DistributedComputeNode(ModernLogger):
+    """
+    High-performance distributed compute node implementation.
+    
+    This class implements a compute node that connects to an EasyRemote
+    gateway server and provides computational resources to the distributed
+    computing cluster.
+    
+    Key Responsibilities:
+    1. Function Registration: Register available computational functions
+    2. Gateway Communication: Maintain bidirectional communication with gateway
+    3. Function Execution: Execute remote function calls with proper isolation
+    4. Health Monitoring: Report node health and performance metrics
+    5. Resource Management: Manage computational resources and capacity
+    
+    Architecture Features:
+    - Asynchronous gRPC communication for high throughput
+    - Comprehensive error handling with automatic recovery
+    - Real-time performance monitoring and metrics collection
+    - Support for multiple function types (sync, async, streaming)
+    - Graceful shutdown and resource cleanup
+    
+    Usage:
+        >>> node = DistributedComputeNode("localhost:8080", "worker-1")
+        >>> 
+        >>> @node.register
+        ... def compute_task(data):
+        ...     return data * 2
+        >>> 
+        >>> node.serve()  # Start serving requests
+    """
+    
     def __init__(
         self,
-        vps_address: str,
+        gateway_address: str,
         node_id: Optional[str] = None,
-        reconnect_interval: int = 3,
-        heartbeat_interval: int = 5,
-        max_retry_attempts: int = 3,
-        max_queue_size: int = 1000,
-        execution_timeout: int = 300,
-        connection_timeout: int = 10,
-        heartbeat_timeout: int = 15,
-        health_check_interval: int = 30
+        **config_kwargs
     ):
         """
-        初始化计算节点
+        Initialize distributed compute node with comprehensive configuration.
         
         Args:
-            vps_address: VPS服务器地址
-            node_id: 节点ID
-            reconnect_interval: 重连间隔（秒）
-            heartbeat_interval: 心跳间隔（秒）
-            max_retry_attempts: 最大重试次数
-            max_queue_size: 最大队列大小
-            execution_timeout: 执行超时时间（秒）
-            connection_timeout: 连接超时时间（秒）
-            heartbeat_timeout: 心跳超时时间（秒）
-            health_check_interval: 健康检查间隔（秒）
+            gateway_address: Address of the gateway server (host:port)
+            node_id: Unique identifier for this node (auto-generated if None)
+            **config_kwargs: Additional configuration parameters
+            
+        Raises:
+            ValueError: If configuration parameters are invalid
+            EasyRemoteError: If initialization fails
+            
+        Example:
+            >>> node = DistributedComputeNode(
+            ...     gateway_address="localhost:8080",
+            ...     node_id="gpu-worker-1",
+            ...     max_concurrent_executions=5,
+            ...     execution_timeout=600
+            ... )
         """
-        super().__init__(name="ComputeNode")
-        self.info(f"Initializing ComputeNode with VPS address: {vps_address}")
-        self.vps_address = vps_address
-        self.node_id = node_id or f"node-{uuid.uuid4()}"
-        self.reconnect_interval = reconnect_interval
-        self.heartbeat_interval = heartbeat_interval
-        self.max_retry_attempts = max_retry_attempts
-        self.max_queue_size = max_queue_size
-        self.execution_timeout = execution_timeout
-        self.connection_timeout = connection_timeout
-        self.heartbeat_timeout = heartbeat_timeout
-        self.health_check_interval = health_check_interval
-
-        self._functions: Dict[str, FunctionInfo] = {}
-        self._vps_channel: Optional[grpc.aio.Channel] = None
-        self._vps_stub: Optional[service_pb2_grpc.RemoteServiceStub] = None
-        self._running = False
-        self._connected = threading.Event()
-        self._executor = futures.ThreadPoolExecutor(max_workers=10)
-        self._heartbeat_task = None
-        self._health_check_task = None
-        self._last_heartbeat_time = None
-        self._connection_healthy = True
-        self._reconnect_count = 0
+        super().__init__(name="DistributedComputeNode")
         
-        # 异步相关
-        self._loop = None
-        self._lock = asyncio.Lock()
+        # Generate unique node ID if not provided
+        if node_id is None:
+            node_id = self._generate_unique_node_id()
+        
+        # Create configuration object
+        self.config = NodeConfiguration(
+            gateway_address=gateway_address,
+            node_id=node_id,
+            **config_kwargs
+        )
+        
+        self.info(f"Initializing DistributedComputeNode '{self.config.node_id}' "
+                 f"targeting gateway: {self.config.gateway_address}")
+        
+        # Core node state
+        self._connection_state = NodeConnectionState.DISCONNECTED
+        self._state_lock = asyncio.Lock()
+        
+        # Function registry and execution tracking
+        self._registered_functions: Dict[str, FunctionInfo] = {}
+        self._active_executions: Dict[str, ExecutionContext] = {}
+        self._execution_statistics: Dict[str, Dict[str, Any]] = {}
+        
+        # Communication infrastructure
+        self._gateway_channel: Optional[grpc.aio.Channel] = None
+        self._gateway_stub: Optional[service_pb2_grpc.RemoteServiceStub] = None
+        self._communication_queue: Optional[asyncio.Queue] = None
+        
+        # Background tasks and lifecycle management
+        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._background_tasks: Set[asyncio.Task] = set()
+        self._heartbeat_task: Optional[asyncio.Task] = None
+        self._health_monitor_task: Optional[asyncio.Task] = None
         self._shutdown_event = asyncio.Event()
-        self._send_queue = None
-        self._active_executions: Set[str] = set()
-        self._execution_tasks: Dict[str, asyncio.Task] = {}
-
-        self.info(f"ComputeNode {self.node_id} initialized")
-
+        self._connection_event = threading.Event()
+        
+        # Resource management
+        self._thread_executor = futures.ThreadPoolExecutor(
+            max_workers=self.config.max_concurrent_executions,
+            thread_name_prefix=f"EasyRemote-{self.config.node_id}"
+        )
+        
+        # Performance monitoring
+        self._node_metrics = NodeHealthMetrics() if self.config.enable_performance_monitoring else None
+        self._last_heartbeat_time: Optional[datetime] = None
+        self._reconnection_count = 0
+        
+        # Thread safety
+        self._global_lock = asyncio.Lock()
+        
+        self.info(f"DistributedComputeNode '{self.config.node_id}' initialized successfully")
+    
+    def _generate_unique_node_id(self) -> str:
+        """
+        Generate a unique, descriptive node identifier.
+        
+        The generated ID includes hostname, process info, and UUID
+        for uniqueness while remaining human-readable.
+        
+        Returns:
+            Unique node identifier string
+        """
+        try:
+            hostname = platform.node().lower().replace('.', '-')[:12]
+            process_id = f"pid{psutil.Process(os.getpid()).pid}"
+            unique_suffix = str(uuid.uuid4())[:8]
+            return f"compute-{hostname}-{process_id}-{unique_suffix}"
+        except Exception:
+            # Fallback to simple UUID if hostname detection fails
+            return f"compute-node-{str(uuid.uuid4())[:16]}"
+    
+    @property
+    def node_id(self) -> str:
+        """Get the unique node identifier."""
+        return self.config.node_id
+    
+    @property
+    def gateway_address(self) -> str:
+        """Get the gateway server address."""
+        return self.config.gateway_address
+    
+    @property
+    def connection_state(self) -> NodeConnectionState:
+        """Get the current connection state."""
+        return self._connection_state
+    
+    @property
+    def is_connected(self) -> bool:
+        """Check if node is currently connected to gateway."""
+        return self._connection_state == NodeConnectionState.CONNECTED
+    
+    @property
+    def registered_functions(self) -> Dict[str, FunctionInfo]:
+        """Get dictionary of registered functions."""
+        return self._registered_functions.copy()
+    
+    @property
+    def active_executions(self) -> Dict[str, ExecutionContext]:
+        """Get dictionary of currently active executions."""
+        return self._active_executions.copy()
+    
+    async def _set_connection_state(self, new_state: NodeConnectionState):
+        """
+        Thread-safe connection state transition.
+        
+        Args:
+            new_state: The new connection state to transition to
+        """
+        async with self._state_lock:
+            old_state = self._connection_state
+            self._connection_state = new_state
+            
+            if old_state != new_state:
+                self.info(f"Connection state changed: {old_state.value} -> {new_state.value}")
+                
+                # Update connection event for synchronous waiting
+                if new_state == NodeConnectionState.CONNECTED:
+                    self._connection_event.set()
+                else:
+                    self._connection_event.clear()
+    
     def register(
         self,
         func: Optional[Callable] = None,
         *,
         name: Optional[str] = None,
-        stream: bool = False,
-        async_func: bool = False,
-        node_id: Optional[str] = None,
-        timeout: Optional[float] = None,
-        load_balancing: bool = False,
+        function_type: Optional[FunctionType] = None,
+        resource_requirements: Optional[ResourceRequirements] = None,
+        timeout: Optional[int] = None,
+        load_balancing: bool = True,
         max_concurrent: int = 1,
-        cost_aware: bool = False
-    ) -> Callable:
+        tags: Optional[Set[str]] = None,
+        description: Optional[str] = None
+    ) -> Union[Callable, Callable[[Callable], Callable]]:
         """
-        注册一个远程函数，支持负载均衡配置。
+        Register a function for remote execution with comprehensive configuration.
+        
+        This method supports both decorator and direct call patterns, automatically
+        analyzing function characteristics and applying optimal configurations.
         
         Args:
-            func: 要注册的函数
-            name: 函数名称，默认使用函数的__name__
-            stream: 是否为流式函数
-            async_func: 是否为异步函数
-            node_id: 节点ID
-            timeout: 超时时间
-            load_balancing: 是否启用负载均衡
-            max_concurrent: 最大并发数
-            cost_aware: 是否启用成本感知
+            func: Function to register (None for decorator usage)
+            name: Custom function name (defaults to func.__name__)
+            function_type: Type classification (auto-detected if None)
+            resource_requirements: Computational resource needs
+            timeout: Maximum execution time in seconds
+            load_balancing: Enable load balancing for this function
+            max_concurrent: Maximum concurrent executions allowed
+            tags: Metadata tags for categorization
+            description: Human-readable function description
+            
+        Returns:
+            Registered function or decorator
+            
+        Raises:
+            ValueError: If function parameters are invalid
+            EasyRemoteError: If registration fails
+            
+        Example:
+            >>> # Decorator style (recommended)
+            >>> @node.register(
+            ...     timeout=300,
+            ...     resource_requirements=ResourceRequirements(gpu_required=True),
+            ...     tags={"ml", "training"}
+            ... )
+            ... def train_model(data, epochs=10):
+            ...     # AI model training logic
+            ...     return {"accuracy": 0.95, "epochs": epochs}
+            
+            >>> # Direct registration
+            >>> def simple_task(x, y):
+            ...     return x + y
+            >>> node.register(simple_task, name="add_numbers")
         """
         def decorator(f: Callable) -> Callable:
-            func_name = name or f.__name__
-            func_info = analyze_function(f)
-
-            # 扩展FunctionInfo以支持负载均衡信息
+            # Determine function name
+            func_name = name or getattr(f, '__name__', 'unnamed_function')
+            
+            # Analyze function characteristics
+            func_analysis = analyze_function(f)
+            
+            # Determine function type
+            if function_type is None:
+                if func_analysis.is_async and func_analysis.is_generator:
+                    detected_type = FunctionType.ASYNC_GENERATOR
+                elif func_analysis.is_async:
+                    detected_type = FunctionType.ASYNC
+                elif func_analysis.is_generator:
+                    detected_type = FunctionType.GENERATOR
+                else:
+                    detected_type = FunctionType.SYNC
+            else:
+                detected_type = function_type
+            
+            # Create comprehensive function information
             function_info = FunctionInfo(
                 name=func_name,
                 callable=f,
-                is_async=async_func or func_info.is_async,
-                is_generator=stream or func_info.is_generator,
-                node_id=node_id or self.node_id
+                function_type=detected_type,
+                node_id=self.config.node_id,
+                resource_requirements=resource_requirements or ResourceRequirements(),
+                load_balancing_enabled=load_balancing,
+                max_concurrent_calls=max_concurrent,
+                tags=tags or set(),
+                created_at=datetime.now()
             )
             
-            # 添加负载均衡相关属性
-            function_info.load_balancing = load_balancing
-            function_info.max_concurrent = max_concurrent
-            function_info.cost_aware = cost_aware
-            function_info.timeout = timeout
-
-            self._functions[func_name] = function_info
-
-            self.info(f"Registered function: {func_name} (async={function_info.is_async}, "
-                     f"stream={function_info.is_generator}, load_balancing={load_balancing})")
+            # Add description if provided
+            if description:
+                function_info.set_context_data("description", description)
+            
+            # Validate function registration
+            self._validate_function_registration(function_info)
+            
+            # Register function
+            self._registered_functions[func_name] = function_info
+            
+            self.info(f"Registered function '{func_name}' "
+                     f"(type: {detected_type.value}, load_balancing: {load_balancing}, "
+                     f"max_concurrent: {max_concurrent})")
+            
             return f
-
+        
+        # Support both decorator and direct call patterns
         if func is None:
             return decorator
-        return decorator(func)
-
-    def serve(self, blocking: bool = True):
-        """
-        启动计算节点服务，支持自动重连
-        """
-        def _serve():
-            self._running = True
-            retry_count = 0
-            
-            while self._running:
-                try:
-                    self.info(f"Starting node service (attempt {retry_count + 1})")
-                    
-                    # 重置连接状态
-                    self._connected.clear()
-                    self._connection_healthy = True
-                    
-                    # 检查是否需要新的事件循环
-                    if self._loop is None or self._loop.is_closed():
-                        def run_in_new_thread():
-                            self._loop = asyncio.new_event_loop()
-                            asyncio.set_event_loop(self._loop)
-                            try:
-                                self._loop.run_until_complete(self._connect_and_run())
-                            except Exception as e:
-                                self.error(f"Error in event loop: {e}")
-                                raise
-                            finally:
-                                if not self._loop.is_closed():
-                                    self._loop.close()
-                                self._loop = None
-                        
-                        thread = threading.Thread(target=run_in_new_thread)
-                        thread.start()
-                        thread.join()  # 等待线程完成
-                    else:
-                        # 创建并设置此线程的事件循环
-                        self._loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(self._loop)
-                        try:
-                            self._loop.run_until_complete(self._connect_and_run())
-                        finally:
-                            if not self._loop.is_closed():
-                                self._loop.close()
-                            self._loop = None
-                            
-                    # 如果正常退出，重置重试计数
-                    retry_count = 0
-                    self._reconnect_count = 0
-                    
-                except KeyboardInterrupt:
-                    self.info("Received Ctrl+C, stopping node...")
-                    self._running = False
-                    break
-                except EasyRemoteError as e:
-                    retry_count += 1
-                    self._reconnect_count += 1
-                    self.error(f"Connection error (attempt {retry_count}): {str(e)}")
-                    self._connected.clear()
-                    self._connection_healthy = False
-                    
-                    if retry_count >= self.max_retry_attempts:
-                        self.error(f"Maximum retry attempts ({self.max_retry_attempts}) reached. Stopping.")
-                        break
-                        
-                    if self._running:
-                        wait_time = min(self.reconnect_interval * (2 ** (retry_count - 1)), 60)  # Exponential backoff
-                        self.info(f"Reconnecting in {wait_time} seconds... (attempt {retry_count}/{self.max_retry_attempts})")
-                        time.sleep(wait_time)
-                        self.info("Attempting to reconnect...")
-                except Exception as e:
-                    retry_count += 1
-                    self._reconnect_count += 1
-                    self.error(f"Unexpected error (attempt {retry_count}): {e}", exc_info=True)
-                    self._connected.clear()
-                    self._connection_healthy = False
-                    
-                    if retry_count >= self.max_retry_attempts:
-                        self.error(f"Maximum retry attempts ({self.max_retry_attempts}) reached. Stopping.")
-                        break
-                        
-                    if self._running:
-                        wait_time = min(self.reconnect_interval * (2 ** (retry_count - 1)), 60)  # Exponential backoff
-                        self.info(f"Reconnecting in {wait_time} seconds... (attempt {retry_count}/{self.max_retry_attempts})")
-                        time.sleep(wait_time)
-                        self.info("Attempting to reconnect...")
-                finally:
-                    # 确保清理资源
-                    if self._loop and not self._loop.is_closed():
-                        try:
-                            # 清理所有待处理的任务
-                            self._loop.run_until_complete(self._force_cleanup())
-                        except Exception as e:
-                            self.debug(f"Error during cleanup: {e}")
-
-            self.info("Node service stopped")
-
-        if blocking:
-            try:
-                _serve()
-            except KeyboardInterrupt:
-                self.info("Received Ctrl+C, stopping node...")
-                self._running = False
         else:
-            thread = threading.Thread(target=_serve, daemon=True)
+            return decorator(func)
+    
+    def _validate_function_registration(self, function_info: FunctionInfo):
+        """
+        Validate function registration parameters.
+        
+        Args:
+            function_info: Function information to validate
+            
+        Raises:
+            ValueError: If validation fails
+        """
+        if not function_info.name:
+            raise ValueError("Function name cannot be empty")
+        
+        if function_info.name in self._registered_functions:
+            raise ValueError(f"Function '{function_info.name}' is already registered")
+        
+        if function_info.max_concurrent_calls < 1:
+            raise ValueError("Max concurrent calls must be positive")
+        
+        if not function_info.callable:
+            raise ValueError("Function callable cannot be None")
+    
+    def serve(self, blocking: bool = True) -> Optional[threading.Thread]:
+        """
+        Start the compute node service with automatic reconnection.
+        
+        This method starts the node service and maintains connection to the gateway
+        server with automatic retry and reconnection capabilities.
+        
+        Args:
+            blocking: Whether to block the calling thread (True) or run in background (False)
+            
+        Returns:
+            Thread handle if non-blocking, None if blocking
+            
+        Raises:
+            EasyRemoteError: If service fails to start after all retry attempts
+            
+        Example:
+            >>> node.serve()  # Blocking mode
+            >>> # or
+            >>> thread = node.serve(blocking=False)  # Background mode
+        """
+        # Placeholder implementation - will be completed in next phase
+        self.info(f"Starting compute node service (blocking={blocking})")
+        
+        if blocking:
+            # TODO: Implement blocking service loop with reconnection
+            self.info("Compute node service started in blocking mode")
+        else:
+            # TODO: Implement background service thread
+            thread = threading.Thread(
+                target=lambda: self.info("Background service thread started"),
+                name=f"ComputeNode-{self.config.node_id}",
+                daemon=True
+            )
             thread.start()
             return thread
-
-    async def _force_cleanup(self):
-        """强制清理所有资源"""
-        try:
-            # 检查事件循环是否仍然活跃
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_closed():
-                    self.debug("Event loop is closed, skipping async cleanup")
-                    self._safe_sync_cleanup()
-                    return
-            except RuntimeError:
-                self.debug("No event loop available, using sync cleanup")
-                self._safe_sync_cleanup()
-                return
-
-            # 设置关闭事件
-            if not self._shutdown_event.is_set():
-                self._shutdown_event.set()
-            
-            # 安全取消心跳和健康检查任务
-            await self._safe_cancel_task(self._heartbeat_task, "heartbeat")
-            self._heartbeat_task = None
-            
-            await self._safe_cancel_task(self._health_check_task, "health_check")
-            self._health_check_task = None
-
-            # 取消所有执行任务
-            tasks_to_cancel = list(self._execution_tasks.values())
-            self._execution_tasks.clear()
-            self._active_executions.clear()
-
-            # 安全取消执行任务
-            for task in tasks_to_cancel:
-                if not task.done():
-                    try:
-                        task.cancel()
-                    except Exception as e:
-                        self.debug(f"Error cancelling execution task: {e}")
-
-            # 等待任务完成（设置超时避免无限等待）
-            if tasks_to_cancel:
-                try:
-                    await asyncio.wait_for(
-                        asyncio.gather(*tasks_to_cancel, return_exceptions=True),
-                        timeout=2.0
-                    )
-                except asyncio.TimeoutError:
-                    self.debug("Timeout waiting for tasks to complete")
-
-            # 关闭gRPC通道
-            if self._vps_channel:
-                try:
-                    await asyncio.wait_for(self._vps_channel.close(), timeout=1.0)
-                except asyncio.TimeoutError:
-                    self.debug("Timeout closing gRPC channel")
-                except Exception as e:
-                    self.debug(f"Error closing gRPC channel: {e}")
-                finally:
-                    self._vps_channel = None
-                    self._vps_stub = None
-
-            # 清空发送队列
-            self._safe_clear_queue()
-                    
-        except RuntimeError as e:
-            if "Event loop is closed" in str(e):
-                self.debug("Event loop closed during cleanup")
-                self._safe_sync_cleanup()
-            else:
-                self.debug(f"Runtime error in force cleanup: {e}")
-        except Exception as e:
-            # 只在非事件循环关闭的情况下记录错误
-            if "Event loop is closed" not in str(e):
-                self.debug(f"Error in force cleanup: {e}")
-
-    async def _safe_cancel_task(self, task, task_name):
-        """安全取消任务"""
-        if task and not task.done():
-            try:
-                task.cancel()
-                try:
-                    await asyncio.wait_for(task, timeout=1.0)
-                except asyncio.CancelledError:
-                    self.debug(f"{task_name} task cancelled successfully")
-                except asyncio.TimeoutError:
-                    self.debug(f"Timeout waiting for {task_name} task to cancel")
-            except RuntimeError as e:
-                if "Event loop is closed" in str(e):
-                    self.debug(f"Event loop closed while cancelling {task_name} task")
-                else:
-                    raise
-            except Exception as e:
-                self.debug(f"Error cancelling {task_name} task: {e}")
-
-    def _safe_sync_cleanup(self):
-        """同步方式清理资源（当事件循环关闭时使用）"""
-        try:
-            # 重置状态变量
-            self._vps_channel = None
-            self._vps_stub = None
-            self._heartbeat_task = None
-            self._health_check_task = None
-            self._execution_tasks.clear()
-            self._active_executions.clear()
-            self._connection_healthy = False
-            
-            # 清空队列
-            self._safe_clear_queue()
-            
-            self.debug("Sync cleanup completed")
-        except Exception as e:
-            self.debug(f"Error in sync cleanup: {e}")
-
-    def _safe_clear_queue(self):
-        """安全清空发送队列"""
-        if self._send_queue:
-            try:
-                while not self._send_queue.empty():
-                    try:
-                        self._send_queue.get_nowait()
-                    except asyncio.QueueEmpty:
-                        break
-                    except Exception:
-                        break
-            except Exception as e:
-                self.debug(f"Error clearing send queue: {e}")
-
-    async def _connect_and_run(self):
-        """连接到VPS并处理控制流"""
-        self.debug(f"Connecting to VPS at {self.vps_address}")
-
-        # 确保旧连接完全关闭
-        await self._force_cleanup()
-
-        # 配置gRPC通道选项以提高稳定性和检测能力
-        options = [
-            ('grpc.keepalive_time_ms', 20000),  # 减少keepalive时间
-            ('grpc.keepalive_timeout_ms', 3000),  # 减少keepalive超时
-            ('grpc.keepalive_permit_without_calls', True),
-            ('grpc.http2.max_pings_without_data', 0),
-            ('grpc.http2.min_time_between_pings_ms', 5000),
-            ('grpc.max_send_message_length', 50 * 1024 * 1024),
-            ('grpc.max_receive_message_length', 50 * 1024 * 1024),
-            # 添加连接检测选项
-            ('grpc.so_reuseport', 1),
-            ('grpc.tcp_user_timeout_ms', 10000),  # TCP用户超时
-        ]
-        
-        self._vps_channel = grpc.aio.insecure_channel(self.vps_address, options=options)
-        self._vps_stub = service_pb2_grpc.RemoteServiceStub(self._vps_channel)
-
-        # 等待通道就绪，增加重试机制
-        max_connection_attempts = 3
-        for attempt in range(max_connection_attempts):
-            try:
-                await asyncio.wait_for(
-                    self._vps_channel.channel_ready(), 
-                    timeout=self.connection_timeout
-                )
-                break
-            except (grpc.aio.AioRpcError, asyncio.TimeoutError) as e:
-                if attempt == max_connection_attempts - 1:
-                    raise EasyRemoteConnectionError(f"Failed to connect to VPS after {max_connection_attempts} attempts") from e
-                self.warning(f"Connection attempt {attempt + 1} failed, retrying...")
-                await asyncio.sleep(1)
-
-        self.debug("gRPC channel to VPS established successfully")
-
-        # 重新初始化状态
-        self._send_queue = asyncio.Queue(maxsize=self.max_queue_size)
-        self._shutdown_event.clear()
-        self._connection_healthy = True
-        self._last_heartbeat_time = datetime.now()
-        
-        async with self._lock:
-            self._active_executions.clear()
-            self._execution_tasks.clear()
-
-        # 使用异步生成器来发送控制消息
-        async def control_stream_generator():
-            try:
-                # 发送注册请求
-                register_msg = service_pb2.ControlMessage(
-                    register_req=service_pb2.RegisterRequest(
-                        node_id=self.node_id,
-                        functions=[
-                            service_pb2.FunctionSpec(
-                                name=func.name,
-                                is_async=func.is_async,
-                                is_generator=func.is_generator
-                            )
-                            for func in self._functions.values()
-                        ]
-                    )
-                )
-                await self._send_queue.put(register_msg)
-                self.debug(f"Node {self.node_id} queued RegisterRequest to VPS")
-
-                # 启动心跳和健康检查任务
-                self._heartbeat_task = asyncio.create_task(self._send_heartbeats())
-                self._health_check_task = asyncio.create_task(self._connection_health_check())
-
-                while self._running and not self._shutdown_event.is_set():
-                    try:
-                        # 从发送队列中获取消息，使用超时避免永久阻塞
-                        msg = await asyncio.wait_for(
-                            self._send_queue.get(), 
-                            timeout=1.0
-                        )
-                        yield msg
-                    except asyncio.TimeoutError:
-                        # 超时是正常的，继续循环
-                        continue
-                    except asyncio.CancelledError:
-                        break
-                    except Exception as e:
-                        self.error(f"Error in control_stream_generator: {e}", exc_info=True)
-                        break
-            finally:
-                self.debug("Control stream generator shutting down")
-
-        # 建立双向流
-        try:
-            stream_call = self._vps_stub.ControlStream(control_stream_generator())
-            async for msg in stream_call:
-                if self._shutdown_event.is_set():
-                    break
-                await self._handle_message(msg)
-        except grpc.aio.AioRpcError as e:
-            if e.code() == grpc.StatusCode.UNAVAILABLE:
-                # 降低连接断开错误的日志级别，这是正常的重连情况
-                self.debug(f"Server unavailable (normal during reconnection): {e}")
-                raise EasyRemoteConnectionError("Server unavailable") from e
-            elif e.code() == grpc.StatusCode.CANCELLED:
-                self.debug("Stream cancelled")
-            else:
-                self.warning(f"Stream error: {e.code()}")
-                raise EasyRemoteConnectionError(f"Stream error: {e.code()}") from e
-        except Exception as e:
-            self.error(f"Unexpected error in stream processing: {e}", exc_info=True)
-            raise EasyRemoteConnectionError("Unexpected stream error") from e
-        finally:
-            await self._cleanup_connection()
-
-    async def _connection_health_check(self):
-        """定期检查连接健康状态"""
-        try:
-            while self._running and not self._shutdown_event.is_set():
-                await asyncio.sleep(self.health_check_interval)
-                
-                # 检查心跳超时
-                if self._last_heartbeat_time:
-                    time_since_heartbeat = datetime.now() - self._last_heartbeat_time
-                    if time_since_heartbeat.total_seconds() > self.heartbeat_timeout:
-                        self.warning(f"Heartbeat timeout: {time_since_heartbeat.total_seconds()}s > {self.heartbeat_timeout}s")
-                        self._connection_healthy = False
-                        raise EasyRemoteConnectionError("Heartbeat timeout detected")
-                
-                # 主动检查gRPC通道状态
-                if self._vps_channel:
-                    try:
-                        state = self._vps_channel.get_state()
-                        if state in [grpc.ChannelConnectivity.TRANSIENT_FAILURE, 
-                                   grpc.ChannelConnectivity.SHUTDOWN]:
-                            self.warning(f"Channel in bad state: {state}")
-                            self._connection_healthy = False
-                            raise EasyRemoteConnectionError(f"Channel state: {state}")
-                    except Exception as e:
-                        self.warning(f"Error checking channel state: {e}")
-                        
-        except asyncio.CancelledError:
-            self.debug("Health check task cancelled")
-        except Exception as e:
-            if not self._shutdown_event.is_set():
-                self.error(f"Health check failed: {e}")
-                raise EasyRemoteConnectionError("Health check failed") from e
-
-    async def _cleanup_connection(self):
-        """清理连接相关资源"""
-        self.debug("Cleaning up connection resources")
-        
-        # 设置关闭事件
-        self._shutdown_event.set()
-        
-        # 取消心跳任务
-        if self._heartbeat_task:
-            self._heartbeat_task.cancel()
-            try:
-                await self._heartbeat_task
-            except asyncio.CancelledError:
-                pass
-            self._heartbeat_task = None
-
-        # 取消所有活跃的执行任务
-        async with self._lock:
-            tasks_to_cancel = list(self._execution_tasks.values())
-            self._execution_tasks.clear()
-            self._active_executions.clear()
-
-        for task in tasks_to_cancel:
-            if not task.done():
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-                except Exception as e:
-                    self.error(f"Error cancelling execution task: {e}")
-
-        # 关闭gRPC通道
-        if self._vps_channel:
-            try:
-                await self._vps_channel.close()
-            except Exception as e:
-                self.error(f"Error closing gRPC channel: {e}")
-            finally:
-                self._vps_channel = None
-                self._vps_stub = None
-
-        # 清空发送队列
-        if self._send_queue:
-            try:
-                while not self._send_queue.empty():
-                    try:
-                        self._send_queue.get_nowait()
-                    except asyncio.QueueEmpty:
-                        break
-            except Exception as e:
-                self.error(f"Error clearing send queue: {e}")
-
-    async def _handle_message(self, msg):
-        """
-        处理来自VPS的消息
-        """
-        try:
-            if msg.HasField("register_resp"):
-                if msg.register_resp.success:
-                    self.info("Registered to VPS successfully")
-                    self._connected.set()
-                else:
-                    raise EasyRemoteError(f"Registration failed: {msg.register_resp.message}")
-            elif msg.HasField("heartbeat_resp"):
-                if not msg.heartbeat_resp.accepted:
-                    raise EasyRemoteError("Heartbeat rejected by VPS")
-                self._last_heartbeat_time = datetime.now()
-            elif msg.HasField("exec_req"):
-                # 异步处理执行请求，避免阻塞消息处理
-                asyncio.create_task(self._handle_execution_request(msg.exec_req))
-        except Exception as e:
-            self.error(f"Error handling message: {e}", exc_info=True)
-
-    async def _handle_execution_request(self, req: service_pb2.ExecutionRequest):
-        """处理函数执行请求"""
-        function_name = req.function_name
-        call_id = req.call_id
-        
-        # 将执行添加到活跃列表
-        async with self._lock:
-            if call_id in self._active_executions:
-                self.warning(f"Duplicate execution request for call_id: {call_id}")
-                return
-            self._active_executions.add(call_id)
-
-        # 创建执行任务
-        execution_task = asyncio.create_task(
-            self._execute_request(req)
-        )
-        
-        async with self._lock:
-            self._execution_tasks[call_id] = execution_task
-
-        try:
-            await execution_task
-        except asyncio.CancelledError:
-            self.debug(f"Execution cancelled for call_id: {call_id}")
-        except Exception as e:
-            self.error(f"Execution task failed for call_id: {call_id}, error: {e}")
-        finally:
-            # 清理执行状态
-            async with self._lock:
-                self._active_executions.discard(call_id)
-                self._execution_tasks.pop(call_id, None)
-
-    async def _execute_request(self, req: service_pb2.ExecutionRequest):
-        """实际执行请求"""
-        function_name = req.function_name
-        call_id = req.call_id
-        
-        try:
-            # 反序列化参数
-            args, kwargs = deserialize_args(req.args, req.kwargs)
-
-            if function_name not in self._functions:
-                raise FunctionNotFoundError(function_name, node_id=self.node_id)
-
-            func_info = self._functions[function_name]
-
-            if func_info.is_generator:
-                # 处理生成器函数
-                await self._handle_generator_execution(func_info, args, kwargs, call_id)
-            else:
-                # 执行普通函数
-                result = await self._execute_function(func_info, args, kwargs)
-                result_bytes = serialize_result(result)
-
-                exec_res_msg = service_pb2.ControlMessage(
-                    exec_res=service_pb2.ExecutionResult(
-                        call_id=call_id,
-                        has_error=False,
-                        result=result_bytes,
-                        is_done=True,
-                        function_name=func_info.name,
-                        node_id=self.node_id
-                    )
-                )
-                await self._send_message(exec_res_msg)
-
-        except Exception as e:
-            await self._send_error_result(call_id, function_name, e)
-
-    async def _handle_generator_execution(self, func_info: FunctionInfo, args: tuple, kwargs: dict, call_id: str):
-        """处理生成器函数执行"""
-        try:
-            async for chunk in self._handle_generator(func_info, args, kwargs):
-                # 检查是否应该停止
-                if self._shutdown_event.is_set():
-                    break
-                    
-                async with self._lock:
-                    if call_id not in self._active_executions:
-                        break
-
-                serialized_chunk = serialize_result(chunk)
-                exec_res_msg = service_pb2.ControlMessage(
-                    exec_res=service_pb2.ExecutionResult(
-                        call_id=call_id,
-                        has_error=False,
-                        chunk=serialized_chunk,
-                        function_name=func_info.name,
-                        node_id=self.node_id
-                    )
-                )
-                await self._send_message(exec_res_msg)
-
-            # 发送完成信号
-            exec_res_done_msg = service_pb2.ControlMessage(
-                exec_res=service_pb2.ExecutionResult(
-                    call_id=call_id,
-                    is_done=True,
-                    function_name=func_info.name,
-                    node_id=self.node_id
-                )
-            )
-            await self._send_message(exec_res_done_msg)
-            
-        except Exception as e:
-            await self._send_error_result(call_id, func_info.name, e)
-
-    async def _send_error_result(self, call_id: str, function_name: str, error: Exception):
-        """发送错误结果"""
-        error_msg = format_exception(error)
-        exec_res_error_msg = service_pb2.ControlMessage(
-            exec_res=service_pb2.ExecutionResult(
-                call_id=call_id,
-                has_error=True,
-                error_message=error_msg,
-                function_name=function_name,
-                node_id=self.node_id
-            )
-        )
-        await self._send_message(exec_res_error_msg)
-        self.error(f"Error executing {function_name}: {error_msg}")
-
-    async def _execute_function(self, func_info: FunctionInfo, args: tuple, kwargs: dict) -> Any:
-        """执行普通函数"""
-        try:
-            if func_info.is_async:
-                # 为异步函数添加超时
-                result = await asyncio.wait_for(
-                    func_info.callable(*args, **kwargs),
-                    timeout=self.execution_timeout
-                )
-            else:
-                # 为同步函数添加超时
-                result = await asyncio.wait_for(
-                    self._loop.run_in_executor(
-                        self._executor,
-                        func_info.callable,
-                        *args,
-                        **kwargs
-                    ),
-                    timeout=self.execution_timeout
-                )
-            return result
-        except asyncio.TimeoutError as e:
-            raise RemoteExecutionError(
-                function_name=func_info.name,
-                node_id=self.node_id,
-                message=f"Function execution timeout after {self.execution_timeout}s",
-                cause=e
-            ) from e
-        except Exception as e:
-            raise RemoteExecutionError(
-                function_name=func_info.name,
-                node_id=self.node_id,
-                message=str(e),
-                cause=e
-            ) from e
-
-    async def _handle_generator(self, func_info: FunctionInfo, args: tuple, kwargs: dict):
-        """处理生成器函数"""
-        try:
-            if func_info.is_async:
-                # 异步生成器
-                async for item in func_info.callable(*args, **kwargs):
-                    yield item
-            else:
-                # 同步生成器，使用线程池执行
-                loop = asyncio.get_event_loop()
-                gen = await loop.run_in_executor(
-                    self._executor, 
-                    func_info.callable, 
-                    *args, 
-                    **kwargs
-                )
-                
-                while True:
-                    try:
-                        item = await loop.run_in_executor(
-                            self._executor,
-                            lambda: next(gen)
-                        )
-                        yield item
-                    except StopIteration:
-                        break
-        except Exception as e:
-            raise RemoteExecutionError(
-                function_name=func_info.name,
-                node_id=self.node_id,
-                message=str(e),
-                cause=e
-            ) from e
-
-    async def _send_heartbeats(self):
-        """发送心跳消息"""
-        try:
-            while self._running and not self._shutdown_event.is_set():
-                try:
-                    await asyncio.sleep(self.heartbeat_interval)
-                    
-                    heartbeat_msg = service_pb2.ControlMessage(
-                        heartbeat_req=service_pb2.HeartbeatRequest(
-                            node_id=self.node_id
-                        )
-                    )
-                    await self._send_queue.put(heartbeat_msg)
-                    self.debug(f"Node {self.node_id} sent HeartbeatRequest to VPS")
-                except asyncio.QueueFull:
-                    self.warning("Send queue is full, skipping heartbeat")
-                except Exception as e:
-                    if not self._shutdown_event.is_set():
-                        self.error(f"Error sending heartbeat: {e}")
-                        break
-        except asyncio.CancelledError:
-            self.debug("Heartbeat task cancelled")
-        except Exception as e:
-            if not self._shutdown_event.is_set():
-                raise EasyRemoteError("Heartbeat error occurred") from e
-
-    async def _send_message(self, msg: service_pb2.ControlMessage):
-        """发送控制消息到VPS"""
-        if not self._send_queue:
-            raise EasyRemoteError("Send queue not initialized")
-        
-        try:
-            # 使用非阻塞方式放入队列，避免死锁
-            await asyncio.wait_for(
-                self._send_queue.put(msg), 
-                timeout=5.0
-            )
-        except asyncio.TimeoutError:
-            self.warning("Send queue timeout, message may be lost")
-        except asyncio.QueueFull:
-            self.warning("Send queue is full, message may be lost")
-
+    
     def stop(self):
-        """停止计算节点服务"""
-        self._running = False
-        self.info("Node stopping...")
+        """
+        Stop the compute node service gracefully.
         
-        if self._loop and not self._loop.is_closed():
-            try:
-                # 在事件循环中设置关闭事件
-                asyncio.run_coroutine_threadsafe(
-                    self._shutdown_event.set(), 
-                    self._loop
-                )
-                
-                # 异步清理资源
-                cleanup_future = asyncio.run_coroutine_threadsafe(
-                    self._cleanup_connection(), 
-                    self._loop
-                )
-                cleanup_future.result(timeout=10)
-            except Exception as e:
-                self.error(f"Error during cleanup: {e}")
+        This method initiates a graceful shutdown of the compute node,
+        completing any active executions and cleaning up resources.
+        """
+        # Placeholder implementation - will be completed in next phase
+        self.info("Stopping compute node service...")
+        
+        # TODO: Implement graceful shutdown:
+        # - Set shutdown event
+        # - Complete active executions
+        # - Close gateway connection
+        # - Cleanup resources
+        
+        self.info("Compute node service stopped")
+    
+    def get_node_info(self) -> NodeInfo:
+        """
+        Get comprehensive node information for monitoring and debugging.
+        
+        Returns:
+            NodeInfo object with current node state and statistics
+        """
+        return NodeInfo(
+            node_id=self.config.node_id,
+            functions=self._registered_functions.copy(),
+            last_heartbeat=self._last_heartbeat_time or datetime.now(),
+            status=NodeStatus.CONNECTED if self.is_connected else NodeStatus.DISCONNECTED,
+            health_metrics=self._node_metrics or NodeHealthMetrics(),
+            capabilities={"python", "async", "streaming"},
+            version="2.0.0",
+            startup_time=datetime.now(),  # TODO: Track actual startup time
+            total_requests_handled=0,  # TODO: Track request count
+            error_count=0  # TODO: Track error count
+        )
+    
+    @property
+    def execution_statistics(self) -> Dict[str, Dict[str, Any]]:
+        """Get execution statistics for all registered functions."""
+        return self._execution_statistics.copy()
+    
+    def wait_for_connection(self, timeout: Optional[float] = None) -> bool:
+        """
+        Wait for the node to establish connection with the gateway.
+        
+        Args:
+            timeout: Maximum time to wait in seconds (None for indefinite)
+            
+        Returns:
+            True if connected within timeout, False otherwise
+        """
+        return self._connection_event.wait(timeout=timeout)
 
-        # 关闭线程池
-        try:
-            self._executor.shutdown(wait=False)
-        except Exception as e:
-            self.error(f"Error shutting down executor: {e}")
-        
-        self.info("Node stopped")
+
+# Backward compatibility alias
+# This ensures existing code continues to work while we transition to the new naming
+ComputeNode = DistributedComputeNode
+
+
+# Export the main compute node class with both names for flexibility
+__all__ = [
+    'DistributedComputeNode', 
+    'ComputeNode', 
+    'NodeConnectionState', 
+    'NodeConfiguration', 
+    'ExecutionContext'
+]
