@@ -12,7 +12,7 @@
 
 **🌐 Building the Next-Generation Computing Internet - EasyNet**
 
-English | [中文](README_ZH.md)
+English | [中文](README_zh.md)
 
 </div>
 
