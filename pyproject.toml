@@ -1,57 +1,174 @@
 # pyproject.toml
 [build-system]
-requires = ["setuptools>=45", "wheel", "grpcio-tools"]
+requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "easyremote"
-version = "0.1.0.2.3"
-description = "Easy remote function execution framework"
+version = "0.1.3.2"
+description = "A lightweight framework for hassle-free remote computing resource sharing"
 readme = "README.md"
-authors = [{name = "Silan.Hu", email = "silan.hu@u.nus.edu"}]
-license = {file = "LICENSE"}
+license = {text = "MIT"}
+authors = [{name = "Silan Hu", email = "silan.hu@u.nus.edu"}]
+maintainers = [{name = "Silan Hu", email = "silan.hu@u.nus.edu"}]
+keywords = [
+    "remote-computing", 
+    "distributed-computing", 
+    "gpu-sharing", 
+    "cloud-computing", 
+    "grpc", 
+    "asyncio"
+]
 classifiers = [
-    # Python版本支持 - 建议支持3.7+因为异步功能需要
+    # Development Status
+    "Development Status :: 4 - Beta",
+    
+    # Intended Audience
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    
+    # License
+    "License :: OSI Approved :: MIT License",
+    
+    # Programming Language
+    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.7",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3 :: Only",
     
-    # 开发状态
-    "Development Status :: 3 - Alpha",  # 或者用4 - Beta，取决于您认为的成熟度
-    
-    # 目标用户
-    "Intended Audience :: Developers",
-    "Intended Audience :: Science/Research",
-    "Intended Audience :: Information Technology",
-    
-    # 主题分类
+    # Topics
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: System :: Distributed Computing",
+    "Topic :: System :: Networking",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
     
-    # 运行环境
+    # Operating System
     "Operating System :: OS Independent",
     
-    # 许可证
-    "License :: OSI Approved :: MIT License",
+    # Environment
+    "Environment :: Web Environment",
+    "Environment :: Console",
     
-    # 框架特点
+    # Framework
     "Framework :: AsyncIO",
+    
+    # Natural Language
     "Natural Language :: English",
     "Natural Language :: Chinese (Simplified)",
+    
+    # Typing
+    "Typing :: Typed",
 ]
+
 dependencies = [
-    "grpcio>=1.68.1",
-    "protobuf>=5.29.0",
-    "uvicorn>=0.32.1",
+    "grpcio>=1.51.0,<2.0.0",
+    "grpcio-tools>=1.51.0,<2.0.0",
+    "protobuf>=4.21.0,<6.0.0",
+    "uvicorn>=0.20.0",
     "python-multipart>=0.0.19",
-    "rich>=13.0.0"
+    "rich>=13.0.0",
+    "pyfiglet>=0.8.0",
 ]
+
 requires-python = ">=3.7"
 
 [project.urls]
-"Homepage" = "https://github.com/Qingbolan/easyremote"
+Homepage = "https://github.com/Qingbolan/EasyRemote"
+Documentation = "https://github.com/Qingbolan/EasyRemote/blob/main/README.md"
+Repository = "https://github.com/Qingbolan/EasyRemote.git"
 "Bug Tracker" = "https://github.com/Qingbolan/EasyRemote/issues"
-"Repository" = "https://github.com/Qingbolan/EasyRemote.git"
+Changelog = "https://github.com/Qingbolan/EasyRemote/releases"
+"Source Code" = "https://github.com/Qingbolan/EasyRemote"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=22.0.0",
+    "isort>=5.10.0",
+    "flake8>=4.0.0",
+    "mypy>=1.0.0",
+    "pre-commit>=2.17.0"
+]
+test = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0"
+]
+docs = [
+    "mkdocs>=1.4.0",
+    "mkdocs-material>=8.0.0",
+    "mkdocstrings>=0.19.0"
+]
+
+[tool.setuptools]
+packages = ["easyremote"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+easyremote = [
+    "core/protos/*.proto", 
+    "core/protos/*_pb2.py", 
+    "core/protos/*_pb2_grpc.py", 
+    "py.typed"
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py37']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+  | easyremote/core/protos/.*_pb2\.py
+  | easyremote/core/protos/.*_pb2_grpc\.py
+)/
+'''
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+skip_glob = ["easyremote/core/protos/*_pb2.py", "easyremote/core/protos/*_pb2_grpc.py"]
+
+[tool.mypy]
+python_version = "3.7"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+exclude = [
+    "easyremote/core/protos/.*_pb2\\.py",
+    "easyremote/core/protos/.*_pb2_grpc\\.py"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--verbose",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+]

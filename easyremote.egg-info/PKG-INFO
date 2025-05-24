@@ -1,0 +1,238 @@
+Metadata-Version: 2.4
+Name: easyremote
+Version: 0.1.3.1
+Summary: A lightweight framework for hassle-free remote computing resource sharing
+Author: Silan Hu
+Author-email: Silan Hu <silan.hu@u.nus.edu>
+Maintainer-email: Silan Hu <silan.hu@u.nus.edu>
+License: MIT
+Project-URL: Homepage, https://github.com/Qingbolan/EasyRemote
+Project-URL: Documentation, https://github.com/Qingbolan/EasyRemote/blob/main/README.md
+Project-URL: Repository, https://github.com/Qingbolan/EasyRemote.git
+Project-URL: Bug Tracker, https://github.com/Qingbolan/EasyRemote/issues
+Project-URL: Changelog, https://github.com/Qingbolan/EasyRemote/releases
+Project-URL: Source Code, https://github.com/Qingbolan/EasyRemote
+Keywords: remote-computing,distributed-computing,gpu-sharing,cloud-computing,grpc,asyncio
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: Intended Audience :: Science/Research
+Classifier: Intended Audience :: Information Technology
+Classifier: Intended Audience :: System Administrators
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.7
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Programming Language :: Python :: 3 :: Only
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Classifier: Topic :: System :: Distributed Computing
+Classifier: Topic :: System :: Networking
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Classifier: Topic :: Internet :: WWW/HTTP :: HTTP Servers
+Classifier: Topic :: Software Development :: Libraries :: Application Frameworks
+Classifier: Operating System :: OS Independent
+Classifier: Environment :: Web Environment
+Classifier: Environment :: Console
+Classifier: Framework :: AsyncIO
+Classifier: Natural Language :: English
+Classifier: Natural Language :: Chinese (Simplified)
+Classifier: Typing :: Typed
+Requires-Python: >=3.7
+Description-Content-Type: text/markdown
+License-File: LICENSE
+License-File: NOTICE.md
+Requires-Dist: grpcio<2.0.0,>=1.51.0
+Requires-Dist: grpcio-tools<2.0.0,>=1.51.0
+Requires-Dist: protobuf<6.0.0,>=4.21.0
+Requires-Dist: uvicorn>=0.20.0
+Requires-Dist: python-multipart>=0.0.19
+Requires-Dist: rich>=13.0.0
+Requires-Dist: pyfiglet>=0.8.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.21.0; extra == "dev"
+Requires-Dist: black>=22.0.0; extra == "dev"
+Requires-Dist: isort>=5.10.0; extra == "dev"
+Requires-Dist: flake8>=4.0.0; extra == "dev"
+Requires-Dist: mypy>=1.0.0; extra == "dev"
+Requires-Dist: pre-commit>=2.17.0; extra == "dev"
+Provides-Extra: test
+Requires-Dist: pytest>=7.0.0; extra == "test"
+Requires-Dist: pytest-asyncio>=0.21.0; extra == "test"
+Requires-Dist: pytest-cov>=4.0.0; extra == "test"
+Provides-Extra: docs
+Requires-Dist: mkdocs>=1.4.0; extra == "docs"
+Requires-Dist: mkdocs-material>=8.0.0; extra == "docs"
+Requires-Dist: mkdocstrings>=0.19.0; extra == "docs"
+Dynamic: author
+Dynamic: license-file
+
+# EasyRemote
+
+<div align="center">
+
+![EasyRemote Logo](https://raw.githubusercontent.com/Qingbolan/EasyRemote/master/docs/easyremote-logo.png)
+
+[![PyPI version](https://badge.fury.io/py/easyremote.svg)](https://badge.fury.io/py/easyremote)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python Version](https://img.shields.io/pypi/pyversions/easyremote)]()
+
+*A lightweight framework for hassle-free remote computing resource sharing.*
+
+English | [中文](https://github.com/Qingbolan/EasyRemote/blob/main/README_zh.md)
+
+</div>
+
+## Why EasyRemote?
+
+Are you tired of:
+
+- Paying expensive cloud GPU fees for AI development?
+- Struggling with complex deployment for demos?
+- Looking for ways to share computing resources within your team?
+
+EasyRemote lets you expose local computing resources (AI models, data processing functions) as remote services with just a few lines of code. All you need is a cheap VPS!
+
+```python
+# It's as simple as this (register):
+from easyremote import ComputeNode
+
+# Initialize ComputeNode with VPS address and unique node ID
+node = ComputeNode(
+    vps_address="your-vps-ip:8080",
+    node_id="basic-compute"
+)
+
+@node.register
+def run_model(input_data):
+    return your_ai_model(input_data)  # Executes on your local GPU
+
+if __name__ == "__main__":
+    node.serve()
+```
+
+## Features
+
+- 🚀 **Super Simple**: Turn any function into a remote service with a single decorator
+- 💰 **Cost-Effective**: Use your local GPU through an inexpensive VPS
+- 🔒 **Private & Secure**: All computation stays on your local machine
+- 🌐 **Flexible Deployment**: Perfect for demos, prototypes, and team collaboration
+
+## Quick Start
+
+### 1. Installation
+
+```bash
+pip install easyremote
+```
+
+### 2. Set Up VPS (Gateway&&Call)
+
+```python
+from easyremote import Server
+
+app = FastAPI()
+server = Server(port=8080)
+
+@remote(node_id="basic-compute")
+def add(a: int, b: int) -> int:
+    pass
+```
+
+### 3. Configure Local Node
+
+```python
+from easyremote import ComputeNode
+
+# Connect to your VPS
+node = ComputeNode("your-vps-ip:8080")
+
+# Define your remote functions
+@node.register
+def process_data(data):
+    return heavy_computation(data)  # Runs locally
+
+# Start serving
+node.serve()
+```
+
+## Advanced Usage
+
+### Async Support
+
+```python
+@node.register(async_func=True)
+async def async_process(data):
+    result = await complex_async_operation(data)
+    return result
+```
+
+### Streaming Results
+
+```python
+@node.register(stream=True)
+def stream_results(data):
+    for chunk in process_large_dataset(data):
+        yield chunk
+```
+
+### Real-world Examples
+
+Check out our [examples](./examples/) directory for:
+
+- AI Model Serving
+- Data Pipeline Processing
+- Team Resource Sharing
+- And more!
+
+## Architecture
+
+```
+Client -> VPS (Gateway) -> Local Compute Node
+                       -> Local Compute Node
+                       -> Local Compute Node
+```
+
+## Performance
+
+- Efficient binary protocol
+- Support for large data transfer
+- Automatic connection management
+
+## Roadmap
+
+- [ ] Rewrite Distributed Network Using Go's Kitex Framework
+- [ ] Multi-node clustering support
+- [ ] Enhanced security features
+- [ ] Web-based management UI
+- [ ] More language SDKs
+- [ ] Docker support
+
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md)
+
+## License
+
+[MIT License](LICENSE)
+
+## Contact & Support
+
+- Author: Silan Hu
+- Email: silan.hu@u.nus.edu
+- GitHub: [Qingbolan](https://github.com/Qingbolan)
+
+## Acknowledgments
+
+Special thanks to all contributors who have helped make EasyRemote better!
+
+---
+
+<div align="center">
+*If you find EasyRemote useful, please consider giving it a star ⭐*
+
+</div>
