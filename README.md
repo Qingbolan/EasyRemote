@@ -1,165 +1,269 @@
-# EasyRemote
+# EasyRemote: Building the Next-Generation Computing Internet - EasyNet
 
 <div align="center">
 
-![EasyRemote Logo](https://raw.githubusercontent.com/Qingbolan/EasyRemote/master/docs/easyremote-logo.png)
+![EasyRemote Logo](docs/easyremote-logo.png)
 
 [![PyPI version](https://badge.fury.io/py/easyremote.svg)](https://badge.fury.io/py/easyremote)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python Version](https://img.shields.io/pypi/pyversions/easyremote)]()
 
-*A lightweight framework for hassle-free remote computing resource sharing.*
+> **"Torchrun for the World"**: Enabling any terminal user to mobilize global computing resources with a single command to execute local code.
 
-English | [中文](https://github.com/Qingbolan/EasyRemote/blob/main/README_zh.md)
+**🌐 Building the Next-Generation Computing Internet - EasyNet**
+
+English | [中文](README_ZH.md)
 
 </div>
 
-## Why EasyRemote?
+---
 
-Are you tired of:
+## 🧠 From Private Functions to Global Computing Orchestration Engine
 
-- Paying expensive cloud GPU fees for AI development?
-- Struggling with complex deployment for demos?
-- Looking for ways to share computing resources within your team?
+**EasyRemote is not just a Private Function-as-a-Service (Private FaaS) platform—it's our answer to the future of computing:**
 
-EasyRemote lets you expose local computing resources (AI models, data processing functions) as remote services with just a few lines of code. All you need is a cheap VPS!
+> While current cloud computing models are platform-centric, requiring data and code to "go to the cloud" to exchange resources, we believe—  
+> **The next-generation computing network should be terminal-centric, language-interfaced, function-granular, and trust-bounded**.
+
+We call it: **"EasyNet"**.
+
+### 🎯 Core Philosophy: Code as Resource, Device as Node, Execution as Collaboration
+
+EasyRemote is the first-stage implementation of EasyNet, allowing you to:
+
+* **🧠 Define task logic using familiar Python function structures**
+* **🔒 Deploy computing nodes on any device while maintaining privacy, performance, and control**  
+* **🌐 Transform local functions into globally accessible task interfaces through lightweight VPS gateways**
+* **🚀 Eventually launch tasks as simply as using `torchrun`, automatically scheduling to the most suitable resources for execution**
+
+### 💡 Our Paradigm Shift
+
+| Traditional Cloud Computing | **EasyNet Mode** |
+|------------|-------------|
+| Platform-centric | **Terminal-centric** |
+| Code must go to cloud | **Code stays on your device** |
+| Pay for computing power | **Contribute to earn computing power** |
+| Vendor lock-in | **Decentralized collaboration** |
+| Cold start delays | **Always warm** |
+
+---
+
+## 🔭 Current Implementation: Private Function-as-a-Service
+
+### **Quick Experience: Join EasyNet with 12 Lines of Code**
 
 ```python
-# It's as simple as this (register):
-from easyremote import ComputeNode
+# 1. Start gateway node (any VPS)
+from easyremote import Server
+Server(port=8080).start()
 
-# Initialize ComputeNode with VPS address and unique node ID
-node = ComputeNode(
-    vps_address="your-vps-ip:8080",
-    node_id="basic-compute"
-)
+# 2. Contribute computing node (your device)
+from easyremote import ComputeNode
+node = ComputeNode("your-gateway:8080")
 
 @node.register
-def run_model(input_data):
-    return your_ai_model(input_data)  # Executes on your local GPU
+def ai_inference(prompt):
+    return your_local_model.generate(prompt)  # Runs on your GPU
 
-if __name__ == "__main__":
-    node.serve()
+node.serve()
+
+# 3. Global computing access (anywhere)
+from easyremote import Client
+result = Client("your-gateway:8080").execute("ai_inference", "Hello AI")
 ```
 
-## Features
+**🎉 Your device has joined EasyNet!**
 
-- 🚀 **Super Simple**: Turn any function into a remote service with a single decorator
-- 💰 **Cost-Effective**: Use your local GPU through an inexpensive VPS
-- 🔒 **Private & Secure**: All computation stays on your local machine
-- 🌐 **Flexible Deployment**: Perfect for demos, prototypes, and team collaboration
+### **🆚 Comparison with Traditional Cloud Services**
 
-## Quick Start
+| Feature | AWS Lambda | Google Cloud | **EasyNet Node** |
+|------|------------|--------------|----------------|
+| **Computing Location** | Cloud servers | Cloud servers | **Your device** |
+| **Data Privacy** | Upload to cloud | Upload to cloud | **Never leaves local** |
+| **Computing Cost** | $200+/million calls | $200+/million calls | **$5 gateway fee** |
+| **Hardware Limitations** | Cloud specs | Cloud specs | **Your GPU/CPU** |
+| **Startup Latency** | 100-1000ms | 100-1000ms | **0ms (always online)** |
 
-### 1. Installation
+---
+
+## 📚 Complete Documentation Guide
+
+### 🌐 Multilingual Documentation
+
+#### 🇺🇸 English Documentation
+- **[📖 English Documentation Center](docs/en/README.md)** - Complete English documentation navigation
+
+#### 🇨🇳 Chinese Documentation
+- **[📖 中文文档中心](docs/zh/README.md)** - Complete Chinese documentation navigation
+
+### 🚀 Quick Start
+- **[5-Minute Quick Start](docs/en/user-guide/quick-start.md)** - Fastest way to get started | [中文](docs/zh/user-guide/quick-start.md)
+- **[Installation Guide](docs/en/user-guide/installation.md)** - Detailed installation instructions | [中文](docs/zh/user-guide/installation.md)
+
+### 📖 User Guide
+- **[API Reference](docs/en/user-guide/api-reference.md)** - Complete API documentation | [中文](docs/zh/user-guide/api-reference.md)
+- **[Basic Tutorial](docs/en/tutorials/basic-usage.md)** - Detailed basic tutorial | [中文](docs/zh/tutorials/basic-usage.md)
+- **[Advanced Scenarios](docs/en/tutorials/advanced-scenarios.md)** - Complex application implementation | [中文](docs/zh/tutorials/advanced-scenarios.md)
+
+### 🏗️ Technical Deep Dive
+- **[System Architecture](docs/en/architecture/overview.md)** - Overall architecture design | [中文](docs/zh/architecture/overview.md)
+- **[Deployment Guide](docs/en/tutorials/deployment.md)** - Multi-environment deployment solutions | [中文](docs/zh/tutorials/deployment.md)
+
+### 🔬 Research Materials
+- **[Technical Whitepaper](docs/en/research/whitepaper.md)** - EasyNet theoretical foundation | [中文](docs/zh/research/whitepaper.md)
+- **[Research Proposal](docs/en/research/research-proposal.md)** - Academic research plan | [中文](docs/zh/research/research-proposal.md)
+- **[Project Pitch](docs/en/research/pitch.md)** - Business plan overview | [中文](docs/zh/research/pitch.md)
+
+---
+
+## 🌟 Three Major Breakthroughs of EasyNet
+
+### **1. 🔒 Privacy-First Architecture**
+```python
+@node.register
+def medical_diagnosis(scan_data):
+    # Medical data never leaves your HIPAA-compliant device
+    # But diagnostic services can be securely accessed globally
+    return your_private_ai_model.diagnose(scan_data)
+```
+
+### **2. 💰 Economic Model Reconstruction**
+- **Traditional Cloud Services**: Pay-per-use, costs increase exponentially with scale
+- **EasyNet Model**: Contribute computing power to earn credits, use credits to call others' computing power
+- **Gateway Cost**: $5/month vs traditional cloud $200+/million calls
+
+### **3. 🚀 Consumer Devices Participating in Global AI**
+```python
+# Your gaming PC can provide AI inference services globally
+@node.register
+def image_generation(prompt):
+    return your_stable_diffusion.generate(prompt)
+
+# Your MacBook can participate in distributed training
+@node.register  
+def gradient_computation(batch_data):
+    return your_local_model.compute_gradients(batch_data)
+```
+
+---
+
+## 🎯 Future Vision: Torchrun for the World
+
+### **Phase 1 (Current): Private Function Network**
+- ✅ Peer-to-peer function calls
+- ✅ Privacy-preserving computing
+- ✅ Zero cold-start latency
+
+### **Phase 2 (In Development): Computing Resource Pool**
+- 🔄 Automatic load balancing
+- 🔄 Computing contribution credit system
+- 🔄 Cross-node task orchestration
+
+### **Phase 3 (Planned): Intelligent Scheduling Network**
+- 📋 Automatic task decomposition
+- 📋 Optimal resource matching
+- 📋 Fault tolerance and recovery mechanisms
+
+### **Phase 4 (Vision): Global Computing Operating System**
+```bash
+# Future usage paradigm
+$ easynet run --task "train_llm" --data "my_dataset" --nodes 1000
+# Automatically schedule 1000 global nodes to collaboratively train your model
+```
+
+---
+
+## 🔬 Technical Architecture: Decentralization + Edge Computing
+
+### **Network Topology**
+```
+🌍 Global clients
+    ↓
+☁️ Lightweight gateway cluster (routing only, no computing)
+    ↓
+💻 Personal computing nodes (actual execution)
+    ↓
+🔗 Peer-to-peer collaboration network
+```
+
+### **Core Technology Stack**
+- **Communication Protocol**: gRPC + Protocol Buffers
+- **Secure Transport**: End-to-end encryption
+- **Load Balancing**: Intelligent resource awareness
+- **Fault Tolerance**: Automatic retry and recovery
+
+---
+
+## 🌊 Join the Computing Revolution
+
+### **🔥 Why EasyNet Will Change Everything**
+
+**Limitations of Traditional Models**:
+- 💸 Cloud service costs grow exponentially with scale
+- 🔒 Data must be uploaded to third-party servers
+- ⚡ Cold starts and network latency limit performance
+- 🏢 Locked into major cloud service providers
+
+**EasyNet's Breakthroughs**:
+- 💰 **Computing Sharing Economy**: Contribute idle resources, gain global computing power
+- 🔐 **Privacy by Design**: Data never leaves your device
+- 🚀 **Edge-First**: Zero latency, optimal performance
+- 🌐 **Decentralized**: No single points of failure, no vendor lock-in
+
+### **🎯 Our Mission**
+
+> **Redefining the future of computing**: From a few cloud providers monopolizing computing power to every device being part of the computing network.
+
+### **🚀 Join Now**
+
+```bash
+# Become an early node in EasyNet
+pip install easyremote
+
+# Contribute your computing power
+python -c "
+from easyremote import ComputeNode
+node = ComputeNode('demo.easynet.io:8080')
+@node.register
+def hello_world(): return 'Hello from my device!'
+node.serve()
+"
+```
+
+---
+
+## 🏗️ Developer Ecosystem
+
+| Role | Contribution | Benefits |
+|------|-------------|----------|
+| **Computing Providers** | Idle GPU/CPU time | Computing credits/token rewards |
+| **Application Developers** | Innovative algorithms and applications | Global computing resource access |
+| **Gateway Operators** | Network infrastructure | Routing fee sharing |
+| **Ecosystem Builders** | Tools and documentation | Community governance rights |
+
+---
+
+## 📞 Join the Community
+
+* **🎯 Technical Discussions**: [GitHub Issues](https://github.com/Qingbolan/EasyCompute/issues)
+* **💬 Community Chat**: [GitHub Discussions](https://github.com/Qingbolan/EasyCompute/discussions)
+* **📧 Business Collaboration**: [silan.hu@u.nus.edu](mailto:silan.hu@u.nus.edu)
+* **👨‍💻 Project Founder**: [Silan Hu](https://github.com/Qingbolan) - NUS PhD Candidate
+
+---
+
+<div align="center">
+
+## 🌟 "The future of software isn't deployed on the cloud, but runs on your system + EasyNet"
+
+**🚀 Ready to join the computing revolution?**
 
 ```bash
 pip install easyremote
 ```
 
-### 2. Set Up VPS (Gateway&&Call)
+**Don't just see it as a distributed function tool — it's a prototype running on old-world tracks but heading towards a new-world destination.**
 
-```python
-from easyremote import Server
+*⭐ If you believe in this new worldview, please give us a star!*
 
-app = FastAPI()
-server = Server(port=8080)
-
-@remote(node_id="basic-compute")
-def add(a: int, b: int) -> int:
-    pass
-```
-
-### 3. Configure Local Node
-
-```python
-from easyremote import ComputeNode
-
-# Connect to your VPS
-node = ComputeNode("your-vps-ip:8080")
-
-# Define your remote functions
-@node.register
-def process_data(data):
-    return heavy_computation(data)  # Runs locally
-
-# Start serving
-node.serve()
-```
-
-## Advanced Usage
-
-### Async Support
-
-```python
-@node.register(async_func=True)
-async def async_process(data):
-    result = await complex_async_operation(data)
-    return result
-```
-
-### Streaming Results
-
-```python
-@node.register(stream=True)
-def stream_results(data):
-    for chunk in process_large_dataset(data):
-        yield chunk
-```
-
-### Real-world Examples
-
-Check out our [examples](./examples/) directory for:
-
-- AI Model Serving
-- Data Pipeline Processing
-- Team Resource Sharing
-- And more!
-
-## Architecture
-
-```
-Client -> VPS (Gateway) -> Local Compute Node
-                       -> Local Compute Node
-                       -> Local Compute Node
-```
-
-## Performance
-
-- Efficient binary protocol
-- Support for large data transfer
-- Automatic connection management
-
-## Roadmap
-
-- [ ] Rewrite Distributed Network Using Go's Kitex Framework
-- [ ] Multi-node clustering support
-- [ ] Enhanced security features
-- [ ] Web-based management UI
-- [ ] More language SDKs
-- [ ] Docker support
-
-## Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md)
-
-## License
-
-[MIT License](LICENSE)
-
-## Contact & Support
-
-- Author: Silan Hu
-- Email: silan.hu@u.nus.edu
-- GitHub: [Qingbolan](https://github.com/Qingbolan)
-
-## Acknowledgments
-
-Special thanks to all contributors who have helped make EasyRemote better!
-
----
-
-<div align="center">
-*If you find EasyRemote useful, please consider giving it a star ⭐*
-
-</div>
+</div> 

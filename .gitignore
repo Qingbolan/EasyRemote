@@ -81,13 +81,16 @@ dmypy.json
 .DS_Store?
 ._*
 .Spotlight-V100
+easyremote.egg-info
 .Trashes
 ehthumbs.db
 Thumbs.db
 
 # Project specific
 .pypirc
-NOTE
+RELEASE.bat
 
 # Logs
 *.log
+
+backup

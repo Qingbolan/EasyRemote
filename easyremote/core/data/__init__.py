@@ -22,10 +22,23 @@ from .analysis import (
 
 from .serialize import Serializer
 
-# Add missing exports that are used by server and compute_node
+# Add all exports from data_types module including new refactored classes
 from .data_types import (
+    # Core data types
     NodeInfo,
-    FunctionInfo
+    FunctionInfo,
+    
+    # New enum types for better type safety
+    NodeStatus,
+    FunctionType,
+    
+    # Advanced data structures
+    ResourceRequirements,
+    NodeHealthMetrics,
+    
+    # Type aliases for convenience
+    NodeRegistry,
+    FunctionRegistry
 )
 
 __all__ = [
@@ -46,7 +59,19 @@ __all__ = [
     # Main serializer
     'Serializer',
     
-    # Data types
+    # Core data types
     'NodeInfo',
-    'FunctionInfo'
+    'FunctionInfo',
+    
+    # Enum types
+    'NodeStatus',
+    'FunctionType',
+    
+    # Advanced data structures
+    'ResourceRequirements',
+    'NodeHealthMetrics',
+    
+    # Type aliases
+    'NodeRegistry',
+    'FunctionRegistry'
 ]
