@@ -2,11 +2,9 @@
 import functools
 from typing import Optional, Callable, Any, Union, TypeVar, cast
 from .core.utils.exceptions import RemoteExecutionError
-from .nodes.server import Server
-from .core.utils.serialize import setup_logger
+from .core.nodes.server import Server
 import asyncio
 
-logger = setup_logger(__name__)
 
 T = TypeVar('T', bound=Callable)
 
@@ -29,7 +27,6 @@ class RemoteFunction:
     def __call__(self, *args, **kwargs) -> Any:
         server = Server.current()
         try:
-            # 使用位置参数传递 node_id 和 function_name
             result = server.execute_function(
                 self.node_id,
                 self.func.__name__,
@@ -40,14 +37,12 @@ class RemoteFunction:
                 return result
             return result
         except Exception as e:
-            logger.error(f"Error calling remote function {self.func.__name__}: {e}", exc_info=True)
             raise RemoteExecutionError(str(e))
 
     async def __call_async__(self, *args, **kwargs) -> Any:
         server = Server.current()
         try:
             loop = asyncio.get_running_loop()
-            # 使用位置参数传递 node_id 和 function_name
             result = await loop.run_in_executor(
                 None,
                 lambda: server.execute_function(
@@ -61,7 +56,6 @@ class RemoteFunction:
                 return result
             return result
         except Exception as e:
-            logger.error(f"Error calling remote async function {self.func.__name__}: {e}", exc_info=True)
             raise RemoteExecutionError(str(e))
 
 def register(

@@ -8,7 +8,7 @@ import time
 import random
 import numpy as np
 import logging
-from typing import Dict, List, Generator, Any
+from typing import Dict, List, Generator
 from datetime import datetime
 from easyremote import ComputeNode
 

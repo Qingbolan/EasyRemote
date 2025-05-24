@@ -5,7 +5,6 @@
 """
 import asyncio
 import time
-import threading
 from datetime import datetime
 from typing import Dict, Any
 import logging
@@ -13,7 +12,6 @@ from rich.console import Console
 from rich.table import Table
 from rich.live import Live
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn
 
 # 设置日志
 logging.basicConfig(level=logging.INFO)

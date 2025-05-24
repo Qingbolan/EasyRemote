@@ -1,7 +1,7 @@
 # EasyRemote并发流式任务案例依赖项
 
 # 基础依赖
-easyremote>=0.1.0.2.3
+easyremote>=0.1.2.2.5.1
 numpy>=1.21.0
 rich>=13.0.0
 

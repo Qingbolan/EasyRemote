@@ -1,26 +1,16 @@
 # easyremote/__init__.py
-from .nodes.server import Server
-from .nodes.compute_node import ComputeNode
+from .core import Server
+from .core import ComputeNode
 from .decorators import remote
-from .core.utils.exceptions import (
-    EasyRemoteError,
-    NodeNotFoundError,
-    FunctionNotFoundError,
-    ConnectionError,
-    SerializationError,
-    RemoteExecutionError,
-)
+from .core import get_performance_monitor
 
-__version__ = "0.1.0.2.3"
+__version__ = "0.1.3.2"
+__author__ = "Silan Hu"
+__email__ = "silan.hu@u.nus.edu"
 
 __all__ = [
-    'Server',
-    'ComputeNode',
-    'remote',
-    'EasyRemoteError',
-    'NodeNotFoundError',
-    'FunctionNotFoundError',
-    'ConnectionError',
-    'SerializationError',
-    'RemoteExecutionError',
+    "Server",
+    "ComputeNode",
+    "remote",
+    "get_performance_monitor"
 ]

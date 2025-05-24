@@ -6,7 +6,7 @@
 import asyncio
 import logging
 from easyremote import Server, remote
-from easyremote.core.utils.performance import get_performance_monitor
+from easyremote import get_performance_monitor
 
 # 配置日志
 logging.basicConfig(
