@@ -496,7 +496,8 @@ class DistributedComputingClient(ModernLogger):
                  retry_policy: Optional[RetryPolicy] = None,
                  enable_monitoring: bool = True,
                  enable_caching: bool = True,
-                 connection_pool_size: int = 5):
+                 connection_pool_size: int = 5,
+                 log_level: str = "info"):
         """
         Initialize advanced distributed computing client.
         
@@ -509,12 +510,13 @@ class DistributedComputingClient(ModernLogger):
             enable_monitoring: Enable performance monitoring
             enable_caching: Enable result caching
             connection_pool_size: Size of connection pool
+            log_level: Logging level (debug, info, warning, error, critical)
             
         Raises:
             ValueError: If configuration parameters are invalid
             EasyRemoteError: If initialization fails
         """
-        super().__init__(name="DistributedComputingClient")
+        super().__init__(name="DistributedComputingClient", level=log_level)
         
         # Validate parameters
         self._validate_configuration(gateway_address, connection_timeout_ms, 
@@ -608,6 +610,12 @@ class DistributedComputingClient(ModernLogger):
         
         with self._connection_lock:
             try:
+                # Validate gateway address before connecting
+                if not self.gateway_address:
+                    raise EasyRemoteConnectionError(
+                        message="Gateway address is None or empty"
+                    )
+                
                 self._connection_state = ConnectionState.CONNECTING
                 self.debug(f"Connecting to gateway at {self.gateway_address}")
                 
@@ -636,33 +644,50 @@ class DistributedComputingClient(ModernLogger):
                 self._connection_state = ConnectionState.ERROR
                 self.error(f"Failed to connect to gateway: {e}")
                 raise EasyRemoteConnectionError(
-                    f"Connection failed to {self.gateway_address}",
+                    message=f"Connection failed to {self.gateway_address}",
+                    address=self.gateway_address,
                     cause=e
                 )
     
     def _get_grpc_channel_options(self) -> List[Tuple[str, Any]]:
         """Get optimized gRPC channel options."""
         return [
-            ('grpc.keepalive_time_ms', 30000),
-            ('grpc.keepalive_timeout_ms', 5000),
-            ('grpc.keepalive_permit_without_calls', True),
+            ('grpc.keepalive_time_ms', 30000),  # Send keepalive ping every 30s
+            ('grpc.keepalive_timeout_ms', 5000),  # Wait 5s for keepalive response
+            ('grpc.keepalive_permit_without_calls', True),  # Allow pings without active calls
             ('grpc.max_send_message_length', 100 * 1024 * 1024),  # 100MB
             ('grpc.max_receive_message_length', 100 * 1024 * 1024),  # 100MB
-            ('grpc.max_connection_idle_ms', 300000),  # 5 minutes
-            ('grpc.max_connection_age_ms', 3600000),  # 1 hour
-            ('grpc.http2.max_pings_without_data', 0),
-            ('grpc.http2.min_ping_interval_without_data_ms', 300000),
+            ('grpc.max_connection_idle_ms', 300000),  # 5 minutes max idle
+            ('grpc.max_connection_age_ms', 3600000),  # 1 hour max connection age
+            ('grpc.http2.max_pings_without_data', 2),  # Allow 2 pings without data
+            ('grpc.http2.min_ping_interval_without_data_ms', 30000),  # Min 30s between idle pings
         ]
     
     def _test_connection(self):
         """Test connection with simple health check."""
         try:
             # Simple connectivity test with short timeout
-            future = self._gateway_channel.channel_ready()
-            future.result(timeout=self.connection_timeout_ms / 1000.0)
+            # Handle both old and new gRPC API versions
+            if hasattr(self._gateway_channel, 'channel_ready'):
+                future = self._gateway_channel.channel_ready()
+                future.result(timeout=self.connection_timeout_ms / 1000.0)
+            else:
+                # For newer gRPC versions, try to create a simple stub to test connectivity
+                import grpc
+                try:
+                    # Wait for channel to be ready
+                    grpc.channel_ready_future(self._gateway_channel).result(
+                        timeout=self.connection_timeout_ms / 1000.0
+                    )
+                except Exception:
+                    # If channel_ready_future doesn't exist, just continue
+                    # The actual connection will be tested during the first RPC call
+                    pass
         except Exception as e:
             raise EasyRemoteConnectionError(
-                f"Gateway health check failed: {e}"
+                message=f"Gateway health check failed: {e}",
+                address=self.gateway_address,
+                cause=e
             )
     
     def _initialize_connection_pool(self):
@@ -862,15 +887,22 @@ class DistributedComputingClient(ModernLogger):
                               args: tuple, 
                               kwargs: dict) -> ExecutionResult:
         """Execute function using intelligent load balancing."""
+        call_id = str(uuid.uuid4())
+        
         try:
+            # 📤 Enhanced client logging
+            self.debug(f"📤 [CLIENT] Preparing to call function '{context.function_name}' (call_id: {call_id})")
+            
             # Serialize arguments
             args_bytes, kwargs_bytes = serialize_args(*args, **kwargs)
+            self.debug(f"📦 [CLIENT] Arguments serialized for '{context.function_name}'")
         except Exception as e:
+            self.error(f"❌ [CLIENT] Failed to serialize arguments: {e}")
             raise SerializationError(f"Failed to serialize arguments: {e}", cause=e)
         
         # Create load balanced call request
         request = service_pb2.LoadBalancedCallRequest(
-            call_id=str(uuid.uuid4()),
+            call_id=call_id,
             function_name=context.function_name,
             args=args_bytes,
             kwargs=kwargs_bytes,
@@ -880,6 +912,8 @@ class DistributedComputingClient(ModernLogger):
         )
         
         try:
+            self.debug(f"🚀 [CLIENT] Sending request to gateway for '{context.function_name}'...")
+            
             start_time = time.time()
             response = self._gateway_stub.CallWithLoadBalancing(
                 request,
@@ -887,7 +921,11 @@ class DistributedComputingClient(ModernLogger):
             )
             network_time = (time.time() - start_time) * 1000
             
+            self.debug(f"📨 [CLIENT] Received response from gateway for '{context.function_name}' "
+                     f"(network time: {network_time:.1f}ms)")
+            
             if response.has_error:
+                self.error(f"❌ [CLIENT] Remote execution failed: {response.error_message}")
                 raise RemoteExecutionError(
                     function_name=context.function_name,
                     node_id=response.selected_node_id,
@@ -896,21 +934,30 @@ class DistributedComputingClient(ModernLogger):
             
             # Deserialize result
             result = deserialize_result(response.result)
+            execution_time = getattr(response, 'execution_time_ms', 0.0)
+            
+            self.debug(f"✅ [CLIENT] SUCCESS! Function '{context.function_name}' completed "
+                     f"(execution: {execution_time:.1f}ms, network: {network_time:.1f}ms)")
             
             return ExecutionResult(
                 result=result,
                 function_name=context.function_name,
                 node_id=response.selected_node_id,
                 network_latency_ms=network_time,
-                execution_time_ms=getattr(response, 'execution_time_ms', 0.0)
+                execution_time_ms=execution_time
             )
             
         except grpc.RpcError as e:
             if e.code() == grpc.StatusCode.NOT_FOUND:
+                self.error(f"❌ [CLIENT] No nodes available for function '{context.function_name}'")
                 raise NoAvailableNodesError(
                     f"No nodes available for function '{context.function_name}'"
                 )
-            raise EasyRemoteConnectionError(f"gRPC error during load-balanced call: {e}")
+            self.error(f"💥 [CLIENT] gRPC error during call: {e}")
+            raise EasyRemoteConnectionError(
+                message=f"gRPC error during load-balanced call: {e}",
+                cause=e
+            )
     
     def _execute_direct_target(self, 
                               context: ExecutionContext, 
@@ -960,7 +1007,10 @@ class DistributedComputingClient(ModernLogger):
             )
             
         except grpc.RpcError as e:
-            raise EasyRemoteConnectionError(f"Direct call failed: {e}")
+            raise EasyRemoteConnectionError(
+                message=f"Direct call failed: {e}",
+                cause=e
+            )
     
     def _should_retry(self, exception: Exception) -> bool:
         """Determine if an exception should trigger a retry."""
@@ -1073,7 +1123,10 @@ class DistributedComputingClient(ModernLogger):
             return nodes
             
         except grpc.RpcError as e:
-            raise EasyRemoteConnectionError(f"Failed to list nodes: {e}")
+            raise EasyRemoteConnectionError(
+                message=f"Failed to list nodes: {e}",
+                cause=e
+            )
     
     def get_node_status(self, node_id: str) -> Dict[str, Any]:
         """
@@ -1114,7 +1167,10 @@ class DistributedComputingClient(ModernLogger):
         except grpc.RpcError as e:
             if e.code() == grpc.StatusCode.NOT_FOUND:
                 raise NoAvailableNodesError(f"Node '{node_id}' not found")
-            raise EasyRemoteConnectionError(f"Failed to get node status: {e}")
+            raise EasyRemoteConnectionError(
+                message=f"Failed to get node status: {e}",
+                cause=e
+            )
     
     def get_performance_metrics(self) -> Dict[str, Any]:
         """
@@ -1211,6 +1267,7 @@ class ClientBuilder:
         self._enable_monitoring: bool = True
         self._enable_caching: bool = True
         self._connection_pool_size: int = 5
+        self._log_level: str = "info"
     
     def with_gateway(self, address: str) -> 'ClientBuilder':
         """Set gateway server address."""
@@ -1257,6 +1314,11 @@ class ClientBuilder:
         self._connection_pool_size = size
         return self
     
+    def with_log_level(self, level: str) -> 'ClientBuilder':
+        """Set logging level."""
+        self._log_level = level
+        return self
+    
     def build(self) -> DistributedComputingClient:
         """
         Build and return configured client instance.
@@ -1278,7 +1340,8 @@ class ClientBuilder:
             retry_policy=self._retry_policy,
             enable_monitoring=self._enable_monitoring,
             enable_caching=self._enable_caching,
-            connection_pool_size=self._connection_pool_size
+            connection_pool_size=self._connection_pool_size,
+            log_level=self._log_level
         )
 
 

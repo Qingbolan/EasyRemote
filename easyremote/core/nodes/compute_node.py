@@ -652,7 +652,8 @@ class DistributedComputeNode(ModernLogger):
     def __init__(self, 
                  gateway_address: str,
                  node_id: Optional[str] = None,
-                 config: Optional[NodeConfiguration] = None):
+                 config: Optional[NodeConfiguration] = None,
+                 log_level: str = "info"):
         """
         Initialize distributed compute node with comprehensive configuration.
         
@@ -660,6 +661,7 @@ class DistributedComputeNode(ModernLogger):
             gateway_address: Address of the gateway server (host:port)
             node_id: Unique identifier for this node (auto-generated if None)
             config: Node configuration (auto-generated if None)
+            log_level: Logging level (debug, info, warning, error, critical)
             
         Raises:
             ValueError: If configuration parameters are invalid
@@ -676,7 +678,7 @@ class DistributedComputeNode(ModernLogger):
             ...     )
             ... )
         """
-        super().__init__(name="DistributedComputeNode")
+        super().__init__(name="DistributedComputeNode", level=log_level)
         
         # Generate configuration if not provided
         if node_id is None:
@@ -715,6 +717,7 @@ class DistributedComputeNode(ModernLogger):
         self._gateway_channel: Optional[grpc.aio.Channel] = None
         self._gateway_stub: Optional[service_pb2_grpc.RemoteServiceStub] = None
         self._communication_stream: Optional[Any] = None
+        self._outgoing_messages: asyncio.Queue = asyncio.Queue(maxsize=1000)  # For sending results back to server
         
         # Background tasks and lifecycle management
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
@@ -1037,7 +1040,7 @@ class DistributedComputeNode(ModernLogger):
                 self._event_loop.run_until_complete(self._async_serve())
             except KeyboardInterrupt:
                 self.info("Received interrupt signal, shutting down gracefully...")
-                self._event_loop.run_until_complete(self._async_shutdown())
+                self._event_loop.run_until_complete(self._async_cleanup())
             except Exception as e:
                 self.error(f"Service error: {e}", exc_info=True)
                 raise EasyRemoteError(f"Service failed: {e}") from e
@@ -1205,12 +1208,15 @@ class DistributedComputeNode(ModernLogger):
     def _get_grpc_channel_options(self) -> List[Tuple[str, Any]]:
         """Get optimized gRPC channel options."""
         return [
-            ('grpc.keepalive_time_ms', 30000),
-            ('grpc.keepalive_timeout_ms', 5000),
-            ('grpc.keepalive_permit_without_calls', True),
+            ('grpc.keepalive_time_ms', 30000),  # Send keepalive ping every 30s
+            ('grpc.keepalive_timeout_ms', 5000),  # Wait 5s for keepalive response
+            ('grpc.keepalive_permit_without_calls', True),  # Allow pings without active calls
             ('grpc.max_send_message_length', 100 * 1024 * 1024),  # 100MB
             ('grpc.max_receive_message_length', 100 * 1024 * 1024),  # 100MB
-            ('grpc.max_connection_idle_ms', 300000),  # 5 minutes
+            ('grpc.max_connection_idle_ms', 300000),  # 5 minutes max idle
+            ('grpc.max_connection_age_ms', 3600000),  # 1 hour max connection age
+            ('grpc.http2.max_pings_without_data', 2),  # Allow 2 pings without data
+            ('grpc.http2.min_ping_interval_without_data_ms', 30000),  # Min 30s between idle pings
         ]
     
     async def _test_connection(self):
@@ -1279,8 +1285,11 @@ class DistributedComputeNode(ModernLogger):
     
     async def _heartbeat_loop(self):
         """Maintain heartbeat with gateway."""
+        heartbeat_count = 0
         while not self._shutdown_event.is_set():
             try:
+                heartbeat_count += 1
+                
                 # Create heartbeat message
                 heartbeat = service_pb2.HeartbeatMessage()
                 heartbeat.node_id = self.config.node_id
@@ -1291,24 +1300,34 @@ class DistributedComputeNode(ModernLogger):
                 heartbeat.cpu_usage = resource_usage.get("cpu_percent", 0.0)
                 heartbeat.memory_usage = resource_usage.get("memory_percent", 0.0)
                 heartbeat.gpu_usage = resource_usage.get("gpu_percent", 0.0)
+                heartbeat.active_connections = len(self._active_executions)
+                
+                # 💓 Enhanced heartbeat logging
+                self.debug(f"💓 [NODE-HEARTBEAT] #{heartbeat_count} Sending heartbeat to gateway... "
+                         f"CPU: {heartbeat.cpu_usage:.1f}%, Memory: {heartbeat.memory_usage:.1f}%, "
+                         f"GPU: {heartbeat.gpu_usage:.1f}%, Active: {heartbeat.active_connections}")
                 
                 # Send heartbeat
-                await asyncio.wait_for(
+                response = await asyncio.wait_for(
                     self._gateway_stub.SendHeartbeat(heartbeat),
                     timeout=self.config.heartbeat_timeout_seconds
                 )
                 
                 self._last_heartbeat_time = datetime.now()
-                self.debug("Heartbeat sent successfully")
+                
+                if response.accepted:
+                    self.debug(f"✅ [NODE-HEARTBEAT] #{heartbeat_count} Heartbeat accepted by gateway")
+                else:
+                    self.warning(f"❌ [NODE-HEARTBEAT] #{heartbeat_count} Heartbeat rejected by gateway!")
                 
                 # Wait for next heartbeat
                 await asyncio.sleep(self.config.heartbeat_interval_seconds)
                 
             except asyncio.TimeoutError:
-                self.warning("Heartbeat timeout")
+                self.warning(f"⏰ [NODE-HEARTBEAT] #{heartbeat_count} Heartbeat timeout!")
                 break
             except Exception as e:
-                self.error(f"Heartbeat error: {e}")
+                self.error(f"💥 [NODE-HEARTBEAT] #{heartbeat_count} Heartbeat error: {e}")
                 break
     
     async def _request_handling_loop(self):
@@ -1351,12 +1370,21 @@ class DistributedComputeNode(ModernLogger):
         control_msg.register_req.CopyFrom(register_req)
         yield control_msg
         
-        # Keep the stream alive and send periodic heartbeats
+        # Keep the stream alive and send periodic heartbeats and outgoing messages
         last_heartbeat = time.time()
         heartbeat_interval = self.config.heartbeat_interval_seconds
         
         while not self._shutdown_event.is_set():
             try:
+                # Check for outgoing messages (execution results) first
+                try:
+                    # Non-blocking check for outgoing messages
+                    outgoing_msg = self._outgoing_messages.get_nowait()
+                    yield outgoing_msg
+                    continue  # Send message immediately, don't wait
+                except asyncio.QueueEmpty:
+                    pass  # No outgoing messages, continue with heartbeat logic
+                
                 # Send heartbeat if it's time
                 current_time = time.time()
                 if current_time - last_heartbeat >= heartbeat_interval:
@@ -1369,8 +1397,8 @@ class DistributedComputeNode(ModernLogger):
                     
                     last_heartbeat = current_time
                 
-                # Wait a bit before next iteration
-                await asyncio.sleep(1.0)
+                # Short wait to avoid busy loop, but check for messages frequently
+                await asyncio.sleep(0.1)
                 
             except asyncio.CancelledError:
                 break
@@ -1402,30 +1430,42 @@ class DistributedComputeNode(ModernLogger):
         elif control_message.HasField('exec_req'):
             # Handle execution request
             exec_req = control_message.exec_req
-            self.debug(f"Received execution request for function: {exec_req.function_name}")
+            self.info(f"🎯 [NODE] RECEIVED execution request! function={exec_req.function_name}, call_id={exec_req.call_id}")
             
             # Execute function asynchronously
+            self.info(f"🚀 [NODE] Starting async execution task for {exec_req.function_name}")
             asyncio.create_task(self._execute_function_request(exec_req))
+            self.info(f"✅ [NODE] Async execution task created for {exec_req.function_name}")
+        else:
+            self.debug(f"🔍 [NODE] Received unknown control message type")
     
     async def _execute_function_request(self, exec_req):
         """Execute a function request and send back the result."""
         call_id = exec_req.call_id
         function_name = exec_req.function_name
         
+        self.info(f"🎯 [NODE-EXEC] Starting execution: call_id={call_id}, function={function_name}")
+        
         try:
             # Check if function exists
             if function_name not in self._registered_functions:
-                raise RuntimeError(f"Function '{function_name}' not found")
+                error_msg = f"Function '{function_name}' not found"
+                self.error(f"❌ [NODE-EXEC] {error_msg}")
+                raise RuntimeError(error_msg)
             
             registration = self._registered_functions[function_name]
             func = registration.function_info.callable
             
             if func is None:
-                raise RuntimeError(f"Function '{function_name}' has no callable")
+                error_msg = f"Function '{function_name}' has no callable"
+                self.error(f"❌ [NODE-EXEC] {error_msg}")
+                raise RuntimeError(error_msg)
+            
+            self.info(f"🔧 [NODE-EXEC] Function found, deserializing arguments for {function_name}")
             
             # Deserialize arguments
-            args = self._serializer.deserialize(exec_req.args) if exec_req.args else ()
-            kwargs = self._serializer.deserialize(exec_req.kwargs) if exec_req.kwargs else {}
+            args, kwargs = self._serializer.deserialize_args(exec_req.args, exec_req.kwargs)
+            self.info(f"✅ [NODE-EXEC] Arguments deserialized: args={len(args)}, kwargs={len(kwargs)}")
             
             # Create execution context
             exec_context = ExecutionContext(
@@ -1438,19 +1478,26 @@ class DistributedComputeNode(ModernLogger):
             self._active_executions[call_id] = exec_context
             start_time = time.time()
             
-            self.info(f"Executing function '{function_name}' with call_id {call_id}")
+            self.info(f"🚀 [NODE-EXEC] EXECUTING function '{function_name}' with call_id {call_id} - START!")
             
             # Execute function
             try:
                 if registration.function_info.function_type in (FunctionType.ASYNC, FunctionType.ASYNC_GENERATOR):
+                    self.debug(f"⚡ [NODE-EXEC] Running async function {function_name}")
                     result = await func(*args, **kwargs)
                 else:
                     # Run sync function in thread pool to avoid blocking
+                    self.debug(f"🔄 [NODE-EXEC] Running sync function {function_name} in thread pool")
                     loop = asyncio.get_running_loop()
                     result = await loop.run_in_executor(self._thread_executor, func, *args, **kwargs)
                 
+                execution_time = time.time() - start_time
+                self.info(f"🎉 [NODE-EXEC] SUCCESS! Function '{function_name}' completed in {execution_time:.3f}s, result: {result}")
+                
                 # Serialize result
-                serialized_result = self._serializer.serialize(result)
+                self.debug(f"📦 [NODE-EXEC] Serializing result for {function_name}")
+                serialized_result = self._serializer.serialize_result(result)
+                self.debug(f"✅ [NODE-EXEC] Result serialized for {function_name}")
                 
                 # Create success response
                 exec_result = service_pb2.ExecutionResult()
@@ -1461,14 +1508,16 @@ class DistributedComputeNode(ModernLogger):
                 exec_result.result = serialized_result
                 exec_result.is_done = True
                 
-                execution_time = time.time() - start_time
-                self.info(f"Function '{function_name}' completed successfully in {execution_time:.3f}s")
+                self.info(f"✅ [NODE-EXEC] Created success response for {function_name}")
                 
                 # Update statistics
                 registration.update_execution_stats(True, execution_time * 1000)
                 self._successful_executions += 1
                 
             except Exception as e:
+                execution_time = time.time() - start_time
+                self.error(f"💥 [NODE-EXEC] FUNCTION FAILED! '{function_name}' failed after {execution_time:.3f}s: {e}")
+                
                 # Create error response
                 exec_result = service_pb2.ExecutionResult()
                 exec_result.call_id = call_id
@@ -1478,9 +1527,6 @@ class DistributedComputeNode(ModernLogger):
                 exec_result.error_message = str(e)
                 exec_result.is_done = True
                 
-                execution_time = time.time() - start_time
-                self.error(f"Function '{function_name}' failed after {execution_time:.3f}s: {e}")
-                
                 # Update statistics
                 registration.update_execution_stats(False, execution_time * 1000)
             
@@ -1488,17 +1534,22 @@ class DistributedComputeNode(ModernLogger):
             control_msg = service_pb2.ControlMessage()
             control_msg.exec_res.CopyFrom(exec_result)
             
+            self.info(f"📤 [NODE-EXEC] Sending result back to server for {function_name}")
+            
             # Note: In a real implementation, we'd need to send this back through the control stream
             # For now, we'll store it in a queue that the control stream generator can pick up
             if hasattr(self, '_outgoing_messages'):
                 await self._outgoing_messages.put(control_msg)
+                self.info(f"✅ [NODE-EXEC] Result queued for transmission to server")
+            else:
+                self.error(f"❌ [NODE-EXEC] No _outgoing_messages queue available!")
             
         except Exception as e:
-            self.error(f"Error executing function request: {e}")
-        finally:
-            # Clean up execution tracking
-            self._active_executions.pop(call_id, None)
-            self._total_executions += 1
+            self.error(f"💥 [NODE-EXEC] Critical error executing function request {call_id}: {e}")
+            
+            # Clean up active execution tracking
+            if call_id in self._active_executions:
+                del self._active_executions[call_id]
     
     async def _resource_monitoring_loop(self):
         """Background resource monitoring loop."""
@@ -1700,6 +1751,7 @@ class ComputeNodeBuilder:
         self._node_id: Optional[str] = None
         self._config: Optional[NodeConfiguration] = None
         self._environment: Environment = Environment.DEVELOPMENT
+        self._log_level: str = "info"
     
     def with_gateway(self, address: str) -> 'ComputeNodeBuilder':
         """Set gateway server address."""
@@ -1765,6 +1817,11 @@ class ComputeNodeBuilder:
         self._config.enable_detailed_logging = enabled
         return self
     
+    def with_log_level(self, level: str) -> 'ComputeNodeBuilder':
+        """Set logging level."""
+        self._log_level = level
+        return self
+    
     def build(self) -> DistributedComputeNode:
         """
         Build and return configured compute node instance.
@@ -1793,7 +1850,8 @@ class ComputeNodeBuilder:
         return DistributedComputeNode(
             gateway_address=self._gateway_address,
             node_id=self._node_id,
-            config=self._config
+            config=self._config,
+            log_level=self._log_level
         )
 
 
