@@ -748,33 +748,124 @@ class IntelligentLoadBalancer(ModernLogger):
             await self._cleanup_old_metrics()
     
     async def _cleanup_old_metrics(self):
-        """Clean up old performance metrics to prevent memory leaks."""
-        self._last_cleanup_time = datetime.now()
+        """Cleanup old performance metrics beyond retention period."""
+        if not self._performance_history:
+            return
+        
         cutoff_time = datetime.now() - timedelta(hours=self.metrics_retention_hours)
         
-        # Clean performance history
-        self._performance_history = deque(
-            [record for record in self._performance_history 
-             if record["timestamp"] > cutoff_time],
-            maxlen=1000
-        )
+        # Remove old entries from performance history
+        while (self._performance_history and 
+               self._performance_history[0].get('timestamp', datetime.now()) < cutoff_time):
+            self._performance_history.popleft()
         
-        # Clean node performance history
-        for node_id, history in self._node_performance_history.items():
-            # Keep only recent performance data
-            recent_data = [data for data in history if data.get("timestamp", datetime.min) > cutoff_time]
-            self._node_performance_history[node_id] = deque(recent_data, maxlen=50)
+        # Clean up node performance history
+        for node_id in list(self._node_performance_history.keys()):
+            node_history = self._node_performance_history[node_id]
+            
+            # Remove old entries
+            while (node_history and 
+                   len(node_history) > 0 and
+                   getattr(node_history[0], 'timestamp', datetime.now()) < cutoff_time):
+                node_history.popleft()
+            
+            # Remove empty histories
+            if not node_history:
+                del self._node_performance_history[node_id]
         
-        # Clean health cache
-        current_time = datetime.now()
-        self._node_health_cache = {
-            node_id: (is_healthy, cache_time)
-            for node_id, (is_healthy, cache_time) in self._node_health_cache.items()
-            if current_time - cache_time < self._health_cache_ttl
-        }
-        
-        self.debug("Completed metrics cleanup")
+        self.debug("Cleaned up old performance metrics")
     
+    def select_node(self, 
+                   function_name: str, 
+                   request_context: RequestContext,
+                   available_nodes: List[str]) -> str:
+        """
+        Synchronous wrapper for route_request method to maintain API compatibility.
+        
+        This method provides a simplified interface for the server to use load balancing
+        without needing to handle async/await directly.
+        
+        Args:
+            function_name: Name of the function to execute
+            request_context: Request context with metadata
+            available_nodes: List of available node IDs
+            
+        Returns:
+            Selected node ID
+            
+        Raises:
+            NoAvailableNodesError: If no suitable nodes are available
+            LoadBalancingError: If routing decision fails
+        """
+        try:
+            # Use simplified synchronous load balancing logic
+            # This avoids async/event loop complications in the server context
+            return self._sync_select_node(function_name, request_context, available_nodes)
+                
+        except Exception as e:
+            self.error(f"Load balancing failed for function '{function_name}': {e}")
+            # Fallback to simple round-robin if advanced balancing fails
+            if available_nodes:
+                return available_nodes[0]
+            raise NoAvailableNodesError(f"No nodes available for function '{function_name}'")
+    
+    def _sync_select_node(self, 
+                         function_name: str, 
+                         request_context: RequestContext,
+                         available_nodes: List[str]) -> str:
+        """
+        Simple synchronous node selection using round-robin.
+        
+        Args:
+            function_name: Name of the function to execute
+            request_context: Request context with metadata
+            available_nodes: List of available node IDs
+            
+        Returns:
+            Selected node ID
+            
+        Raises:
+            NoAvailableNodesError: If no suitable nodes are available
+        """
+        if not available_nodes:
+            raise NoAvailableNodesError(f"No nodes available for function '{function_name}'")
+        
+        self.info(f"🎯 [BALANCER] Simple selection for function '{function_name}' - {len(available_nodes)} nodes available: {available_nodes}")
+        
+        # Use simple round-robin selection
+        selected_node = self._round_robin_fallback(function_name, available_nodes)
+        self.info(f"✅ [BALANCER] Selected node: '{selected_node}' using round-robin")
+        
+        return selected_node
+    
+    # Commented out complex balancing methods - using simple round-robin only
+    # def _get_sync_node_stats(self, node_ids: List[str]) -> Dict[str, Dict[str, float]]:
+    # def _intelligent_sync_selection(self, ...):
+    # def _calculate_node_score(self, node_id: str, stats: Dict[str, float]) -> float:
+    
+    def _round_robin_fallback(self, function_name: str, available_nodes: List[str]) -> str:
+        """
+        Simple round-robin fallback selection.
+        
+        Args:
+            function_name: Name of the function
+            available_nodes: List of available nodes
+            
+        Returns:
+            Selected node ID
+        """
+        if not hasattr(self, '_round_robin_counters'):
+            self._round_robin_counters = {}
+        
+        # Get current counter for this function
+        counter = self._round_robin_counters.get(function_name, 0)
+        selected_node = available_nodes[counter % len(available_nodes)]
+        
+        # Update counter
+        self._round_robin_counters[function_name] = (counter + 1) % len(available_nodes)
+        
+        return selected_node
+
     def get_performance_metrics(self) -> LoadBalancingMetrics:
         """
         Get current load balancing performance metrics.

@@ -19,6 +19,8 @@ message NodeInfo {
     string version = 6;
     repeated string capabilities = 7;
     string location = 8;
+    int64 last_heartbeat = 9;
+    float current_load = 10;
 }
 
 // Heartbeat message for maintaining connection
@@ -68,6 +70,71 @@ message ExecutionResult {
     string node_id = 8;       
 }
 
+// Load balanced call request message
+message LoadBalancedCallRequest {
+    string call_id = 1;
+    string function_name = 2;
+    bytes args = 3;
+    bytes kwargs = 4;
+    string strategy = 5;
+    string requirements = 6;
+    int32 timeout = 7;
+}
+
+// Load balanced call response message  
+message LoadBalancedCallResponse {
+    bool has_error = 1;
+    string error_message = 2;
+    bytes result = 3;
+    string selected_node_id = 4;
+    float execution_time_ms = 5;
+}
+
+// Direct call request message
+message DirectCallRequest {
+    string call_id = 1;
+    string node_id = 2;
+    string function_name = 3;
+    bytes args = 4;
+    bytes kwargs = 5;
+}
+
+// Direct call response message
+message DirectCallResponse {
+    bool has_error = 1;
+    string error_message = 2;
+    bytes result = 3;
+}
+
+// List nodes request message
+message ListNodesRequest {
+    string client_id = 1;
+}
+
+// List nodes response message  
+message ListNodesResponse {
+    repeated NodeInfo nodes = 1;
+}
+
+// Node status request message
+message NodeStatusRequest {
+    string client_id = 1;
+    string node_id = 2;
+}
+
+// Node status response message
+message NodeStatusResponse {
+    string node_id = 1;
+    string status = 2;
+    float cpu_usage = 3;
+    float memory_usage = 4;
+    float gpu_usage = 5;
+    float current_load = 6;
+    repeated string functions = 7;
+    float health_score = 8;
+    int64 last_seen = 9;
+}
+
 message ControlMessage {
     oneof payload {
         RegisterRequest register_req = 1;
@@ -85,4 +152,14 @@ service RemoteService {
     rpc ControlStream(stream ControlMessage) returns (stream ControlMessage);
     rpc RegisterNode(NodeInfo) returns (RegisterResponse);
     rpc SendHeartbeat(HeartbeatMessage) returns (HeartbeatResponse);
+    
+    // Load balanced execution
+    rpc CallWithLoadBalancing(LoadBalancedCallRequest) returns (LoadBalancedCallResponse);
+    
+    // Direct node execution
+    rpc CallDirect(DirectCallRequest) returns (DirectCallResponse);
+    
+    // Node management
+    rpc ListNodes(ListNodesRequest) returns (ListNodesResponse);
+    rpc GetNodeStatus(NodeStatusRequest) returns (NodeStatusResponse);
 }

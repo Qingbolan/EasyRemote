@@ -21,10 +21,74 @@ import os
 from typing import Any, Optional, Tuple
 from pyfiglet import Figlet
 
+class CompactRichHandler(RichHandler):
+    """
+    Custom RichHandler that prevents extra spacing between log messages.
+    
+    This handler overrides the default RichHandler behavior to provide
+    compact logging output without the extra blank lines that Rich
+    sometimes adds between log messages.
+    """
+    
+    def __init__(self, *args, log_time_format="%H:%M:%S", **kwargs):
+        super().__init__(*args, **kwargs)
+        # Store the time format
+        self.log_time_format = log_time_format
+    
+    def emit(self, record):
+        """
+        Override emit to control spacing and format.
+        """
+        try:
+            # Get the message text
+            message = record.getMessage()
+            
+            # Format time using the formatter
+            import time
+            time_str = time.strftime(self.log_time_format, time.localtime(record.created))
+            
+            # Format level with style
+            level_name = record.levelname
+            level_style = self._get_level_style(level_name)
+            
+            # Create compact log line with Rich markup
+            log_line = f"[dim]{time_str}[/dim] [{level_style}]{level_name:<8}[/{level_style}] {message}"
+            
+            # Print directly without Rich's extra formatting
+            self.console.print(log_line, highlight=False, markup=True)
+            
+        except Exception:
+            self.handleError(record)
+    
+    def _get_level_style(self, level_name):
+        """Get style for log level."""
+        styles = {
+            "DEBUG": "grey70",
+            "INFO": "bold cyan", 
+            "WARNING": "bold yellow",
+            "ERROR": "bold red",
+            "CRITICAL": "bold white on red"
+        }
+        return styles.get(level_name, "bold")
+
 class ModernLogger:
     """
     Modern colorful logger with smooth gradient styling inspired by Vue CLI,
     built on top of the rich library.
+    
+    Features:
+    - Compact mode to eliminate extra spacing between log messages
+    - Rich formatting with emoji icons and color themes
+    - Gradient text effects for special messages
+    - Progress bars, panels, and other rich UI elements
+    
+    Args:
+        name: Logger name (default: "app")
+        level: Log level ("debug", "info", "warning", "error", "critical")
+        log_file: Optional file path for logging to file
+        show_path: Whether to show file paths in logs
+        rich_tracebacks: Enable rich traceback formatting
+        compact_mode: If True, eliminates extra spacing between log messages (default: True)
     """
 
     # Emoji prefixes for each level
@@ -46,7 +110,8 @@ class ModernLogger:
         level: str = "info",
         log_file: Optional[str] = None,
         show_path: bool = True,
-        rich_tracebacks: bool = True
+        rich_tracebacks: bool = True,
+        compact_mode: bool = True
     ):
         # Enable rich tracebacks
         install_rich_traceback(show_locals=True)
@@ -78,17 +143,36 @@ class ModernLogger:
             "logging.level.critical": "bold white on red",
         })
 
+        # Store compact mode setting
+        self.compact_mode = compact_mode
+        
         # Set up console and handler
         self.console = Console(theme=custom_theme, highlight=True)
-        rich_handler = RichHandler(
-            console=self.console,
-            show_time=True,
-            show_level=True,
-            show_path=show_path,
-            markup=True,
-            rich_tracebacks=rich_tracebacks,
-            log_time_format="%H:%M:%S"
-        )
+        
+        if compact_mode:
+            # Use custom compact handler
+            rich_handler = CompactRichHandler(
+                console=self.console,
+                show_time=True,
+                show_level=True,
+                show_path=False,
+                markup=True,
+                rich_tracebacks=False,
+                log_time_format="%H:%M:%S"
+            )
+        else:
+            # Use standard RichHandler
+            rich_handler = RichHandler(
+                console=self.console,
+                show_time=True,
+                show_level=True,
+                show_path=False,  # Don't show file paths to reduce clutter
+                markup=True,
+                rich_tracebacks=False,  # Disable rich tracebacks to avoid multiline
+                log_time_format="%H:%M:%S",
+                omit_repeated_times=False,  # Prevent extra spacing
+                keywords=[]  # Disable keyword highlighting to reduce spacing
+            )
 
         self.logger = logging.getLogger(name)
         self.logger.setLevel(log_level)
@@ -129,6 +213,16 @@ class ModernLogger:
             grad_text.append(ch, style=color)
 
         return grad_text
+
+    def _print_with_spacing(self, *args, **kwargs) -> None:
+        """
+        Print with optional spacing based on compact mode.
+        """
+        if not self.compact_mode:
+            self.console.print()
+        self.console.print(*args, **kwargs)
+        if not self.compact_mode:
+            self.console.print()
 
     # —— Logging Level Methods —— #
 
@@ -178,7 +272,6 @@ class ModernLogger:
         """
         Display a prominent stage marker with smooth gradient panel.
         """
-        self.console.print()
         panel = Panel(
             self._create_gradient_text(f" {message} "),
             box=ROUNDED,
@@ -186,8 +279,10 @@ class ModernLogger:
             expand=False,
             padding=(0, 2)
         )
-        self.console.print(panel, justify="left")
-        self.console.print()
+        if self.compact_mode:
+            self.console.print(panel, justify="left")
+        else:
+            self._print_with_spacing(panel, justify="left")
 
     def highlight(self, message: str) -> None:
         """
@@ -221,10 +316,15 @@ class ModernLogger:
         """
         Print a gradient-colored rule with section title.
         """
-        self.console.print()
         header = self._create_gradient_text(f" {message} ")
-        self.console.rule(header, style="vue_secondary", align="center")
-        self.console.print()
+        if self.compact_mode:
+            self.console.rule(header, style="vue_secondary", align="center")
+        else:
+            if not self.compact_mode:
+                self.console.print()
+            self.console.rule(header, style="vue_secondary", align="center")
+            if not self.compact_mode:
+                self.console.print()
 
     def info_panel(self, title: str, message: str) -> None:
         panel = Panel(

@@ -80,6 +80,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 # gRPC imports
+import grpc
 from grpc import aio as grpc_aio
 from concurrent import futures
 
@@ -93,7 +94,8 @@ from ..utils.exceptions import (
     SerializationError,
     RemoteExecutionError,
     EasyRemoteError,
-    TimeoutError
+    TimeoutError,
+    NoAvailableNodesError
 )
 from ..data import Serializer
 from ..protos import service_pb2, service_pb2_grpc
@@ -341,7 +343,8 @@ class DistributedComputingGateway(service_pb2_grpc.RemoteServiceServicer, Modern
                  enable_analytics: bool = True,
                  enable_security: bool = False,
                  enable_clustering: bool = False,
-                 cleanup_interval_seconds: float = 300.0):
+                 cleanup_interval_seconds: float = 300.0,
+                 log_level: str = "info"):
         """
         Initialize the advanced distributed computing gateway server.
         
@@ -355,6 +358,7 @@ class DistributedComputingGateway(service_pb2_grpc.RemoteServiceServicer, Modern
             enable_security: Enable security and authentication features
             enable_clustering: Enable high-availability clustering support
             cleanup_interval_seconds: Interval for background cleanup operations
+            log_level: Logging level (debug, info, warning, error, critical)
             
         Raises:
             ValueError: If configuration parameters are invalid
@@ -378,7 +382,7 @@ class DistributedComputingGateway(service_pb2_grpc.RemoteServiceServicer, Modern
         """
         # Initialize parent classes
         service_pb2_grpc.RemoteServiceServicer.__init__(self)
-        ModernLogger.__init__(self, name="DistributedComputingGateway")
+        ModernLogger.__init__(self, name="DistributedComputingGateway", level=log_level)
         
         # Validate configuration parameters
         self._validate_configuration(
@@ -713,10 +717,10 @@ class DistributedComputingGateway(service_pb2_grpc.RemoteServiceServicer, Modern
             ('grpc.keepalive_timeout_ms', 5000),  # 5 seconds
             ('grpc.keepalive_permit_without_calls', True),
             
-            # HTTP/2 settings
-            ('grpc.http2.max_pings_without_data', 0),
-            ('grpc.http2.min_time_between_pings_ms', 10000),
-            ('grpc.http2.min_ping_interval_without_data_ms', 300000),
+            # HTTP/2 settings - Fixed to allow keepalive pings
+            ('grpc.http2.max_pings_without_data', 2),  # Allow 2 pings without data
+            ('grpc.http2.min_time_between_pings_ms', 10000),  # Min 10s between pings
+            ('grpc.http2.min_ping_interval_without_data_ms', 30000),  # Min 30s for idle pings
             
             # Performance tuning
             ('grpc.so_reuseport', 1),
@@ -1032,15 +1036,19 @@ class DistributedComputingGateway(service_pb2_grpc.RemoteServiceServicer, Modern
                     node_info.health_metrics.active_connections = request.active_connections
                     node_info.health_metrics.last_updated = datetime.now()
                     
-                    self.debug(f"Updated heartbeat for node {node_id} "
-                             f"(CPU: {request.cpu_usage:.1f}%, Memory: {request.memory_usage:.1f}%)")
+                    # 💓 Enhanced heartbeat logging with detailed status
+                    active_funcs = len(node_info.functions)
+                    self.debug(f"💓 [HEARTBEAT] Node {node_id} alive! "
+                             f"CPU: {request.cpu_usage:.1f}%, Memory: {request.memory_usage:.1f}%, "
+                             f"GPU: {request.gpu_usage:.1f}%, Active: {request.active_connections}, "
+                             f"Functions: {active_funcs}")
                     
                     # Return accepted response
                     response = service_pb2.HeartbeatResponse()
                     response.accepted = True
                     return response
                 else:
-                    self.warning(f"Received heartbeat from unregistered node: {node_id}")
+                    self.warning(f"💔 [HEARTBEAT] REJECTED - Unknown node: {node_id}")
                     
                     # Return rejected response
                     response = service_pb2.HeartbeatResponse()
@@ -1048,12 +1056,337 @@ class DistributedComputingGateway(service_pb2_grpc.RemoteServiceServicer, Modern
                     return response
                     
         except Exception as e:
-            self.error(f"Error processing heartbeat from {request.node_id}: {e}", exc_info=True)
+            self.error(f"💥 [HEARTBEAT] Error processing heartbeat from {request.node_id}: {e}", exc_info=True)
             
             # Return rejected response
             response = service_pb2.HeartbeatResponse()
             response.accepted = False
             return response
+    
+    async def CallWithLoadBalancing(self, request, context):
+        """
+        Handle load balanced function execution requests.
+        
+        This method receives LoadBalancedCallRequest messages and routes them
+        to the optimal compute node using intelligent load balancing strategies.
+        
+        Args:
+            request: LoadBalancedCallRequest protobuf message
+            context: gRPC context
+            
+        Returns:
+            LoadBalancedCallResponse protobuf message
+        """
+        call_id = request.call_id
+        function_name = request.function_name
+        
+        try:
+            # 📥 Enhanced request logging
+            self.info(f"📥 [ROUTE] RECEIVED request from client! call_id={call_id}, function='{function_name}'")
+            
+            # Deserialize arguments
+            try:
+                args, kwargs = self._serializer.deserialize_args(request.args, request.kwargs)
+                self.info(f"🔧 [ROUTE] Arguments deserialized: args={len(args)}, kwargs={len(kwargs)}")
+            except Exception as e:
+                error_msg = f"Failed to deserialize arguments: {e}"
+                self.error(f"❌ [ROUTE] {error_msg}")
+                
+                response = service_pb2.LoadBalancedCallResponse()
+                response.has_error = True
+                response.error_message = error_msg
+                return response
+            
+            # Create request context for load balancing
+            from ..balancing.strategies import RequestContext, RequestPriority
+            
+            # Parse strategy and requirements
+            strategy = request.strategy or "load_balanced"
+            requirements = {}
+            if request.requirements:
+                try:
+                    import json
+                    requirements = json.loads(request.requirements) if request.requirements != "{}" else {}
+                except:
+                    requirements = {}
+            
+            request_context = RequestContext(
+                function_name=function_name,
+                priority=RequestPriority.NORMAL,
+                requirements=requirements,
+                timeout=request.timeout if request.timeout > 0 else None
+            )
+            
+            # 🔄 Notify client that request is being processed
+            self.info(f"🔄 [ROUTE] Processing request {call_id} - looking for available nodes...")
+            
+            # Use load balancer to select node and execute function
+            try:
+                start_time = time.time()
+                
+                # Find available nodes for this function
+                available_nodes = []
+                for node_id, node_info in self._nodes.items():
+                    if function_name in node_info.functions and node_info.is_alive():
+                        available_nodes.append(node_id)
+                
+                if not available_nodes:
+                    raise NoAvailableNodesError(f"No available nodes for function '{function_name}'")
+                
+                # Use load balancer to select optimal node
+                from ..balancing.strategies import RequestContext
+                request_context = RequestContext(function_name=function_name)
+                selected_node = self._load_balancer.select_node(
+                    function_name, 
+                    request_context,
+                    available_nodes
+                )
+                
+                self.info(f"🎯 [ROUTE] Load balancer selected node '{selected_node}' for function '{function_name}' - executing...")
+                
+                # Execute function directly on selected node
+                result = await self.execute_function(selected_node, function_name, *args, **kwargs)
+                execution_time_ms = (time.time() - start_time) * 1000
+                
+                # Serialize result
+                try:
+                    serialized_result = self._serializer.serialize_result(result)
+                    self.info(f"📦 [ROUTE] Result serialized for call {call_id}")
+                except Exception as e:
+                    error_msg = f"Failed to serialize result: {e}"
+                    self.error(f"❌ [ROUTE] {error_msg}")
+                    
+                    response = service_pb2.LoadBalancedCallResponse()
+                    response.has_error = True
+                    response.error_message = error_msg
+                    return response
+                
+                # Create successful response
+                response = service_pb2.LoadBalancedCallResponse()
+                response.has_error = False
+                response.result = serialized_result
+                response.execution_time_ms = execution_time_ms
+                
+                # Try to determine which node was selected (this is approximate)
+                # In a real implementation, execute_function_with_load_balancing should return node info
+                response.selected_node_id = "unknown"  # Placeholder
+                
+                # Update metrics
+                if self.metrics:
+                    self.metrics.update_request_stats(True, execution_time_ms)
+                
+                self.info(f"✅ [ROUTE] SUCCESS! Completed call {call_id} for '{function_name}' "
+                         f"in {execution_time_ms:.2f}ms - sending result back to client")
+                
+                return response
+                
+            except NoAvailableNodesError as e:
+                error_msg = f"No available nodes for function '{function_name}': {e}"
+                self.warning(f"⚠️ [ROUTE] {error_msg}")
+                
+                response = service_pb2.LoadBalancedCallResponse()
+                response.has_error = True
+                response.error_message = error_msg
+                return response
+                
+            except Exception as e:
+                error_msg = f"Function execution failed: {e}"
+                self.error(f"💥 [ROUTE] Load balanced execution failed for call {call_id}: {e}", exc_info=True)
+                
+                response = service_pb2.LoadBalancedCallResponse()
+                response.has_error = True
+                response.error_message = error_msg
+                return response
+        
+        except Exception as e:
+            error_msg = f"Load balanced call processing failed: {e}"
+            self.error(f"💥 [ROUTE] Critical error in CallWithLoadBalancing for call {call_id}: {e}", exc_info=True)
+            
+            # Update metrics for failed request
+            if self.metrics:
+                self.metrics.update_request_stats(False, 0.0)
+            
+            response = service_pb2.LoadBalancedCallResponse()
+            response.has_error = True
+            response.error_message = error_msg
+            return response
+    
+    async def CallDirect(self, request, context):
+        """
+        Handle direct function execution requests to specific nodes.
+        
+        Args:
+            request: DirectCallRequest protobuf message
+            context: gRPC context
+            
+        Returns:
+            DirectCallResponse protobuf message
+        """
+        call_id = request.call_id
+        node_id = request.node_id
+        function_name = request.function_name
+        
+        try:
+            self.debug(f"Processing direct call {call_id} to node '{node_id}' for function '{function_name}'")
+            
+            # Deserialize arguments
+            try:
+                args, kwargs = self._serializer.deserialize_args(request.args, request.kwargs)
+            except Exception as e:
+                error_msg = f"Failed to deserialize arguments: {e}"
+                self.error(error_msg)
+                
+                response = service_pb2.DirectCallResponse()
+                response.has_error = True
+                response.error_message = error_msg
+                return response
+            
+            # Execute function on specific node
+            try:
+                result = await self.execute_function(node_id, function_name, *args, **kwargs)
+                
+                # Serialize result
+                try:
+                    serialized_result = self._serializer.serialize_result(result)
+                except Exception as e:
+                    error_msg = f"Failed to serialize result: {e}"
+                    self.error(error_msg)
+                    
+                    response = service_pb2.DirectCallResponse()
+                    response.has_error = True
+                    response.error_message = error_msg
+                    return response
+                
+                # Create successful response
+                response = service_pb2.DirectCallResponse()
+                response.has_error = False
+                response.result = serialized_result
+                
+                self.debug(f"Successfully completed direct call {call_id} to node '{node_id}'")
+                return response
+                
+            except (NodeNotFoundError, FunctionNotFoundError) as e:
+                error_msg = str(e)
+                self.warning(error_msg)
+                
+                response = service_pb2.DirectCallResponse()
+                response.has_error = True
+                response.error_message = error_msg
+                return response
+                
+            except Exception as e:
+                error_msg = f"Function execution failed: {e}"
+                self.error(f"Direct execution failed for call {call_id}: {e}", exc_info=True)
+                
+                response = service_pb2.DirectCallResponse()
+                response.has_error = True
+                response.error_message = error_msg
+                return response
+        
+        except Exception as e:
+            error_msg = f"Direct call processing failed: {e}"
+            self.error(f"Critical error in CallDirect for call {call_id}: {e}", exc_info=True)
+            
+            response = service_pb2.DirectCallResponse()
+            response.has_error = True
+            response.error_message = error_msg
+            return response
+    
+    async def ListNodes(self, request, context):
+        """
+        Handle node listing requests.
+        
+        Args:
+            request: ListNodesRequest protobuf message
+            context: gRPC context
+            
+        Returns:
+            ListNodesResponse protobuf message
+        """
+        try:
+            self.debug(f"Processing list nodes request from client '{request.client_id}'")
+            
+            response = service_pb2.ListNodesResponse()
+            
+            async with self._global_lock:
+                for node_id, node_info in self._nodes.items():
+                    node_proto = service_pb2.NodeInfo()
+                    node_proto.node_id = node_id
+                    node_proto.status = node_info.status.value if hasattr(node_info.status, 'value') else str(node_info.status)
+                    
+                    # Add function names
+                    for func_name in node_info.functions.keys():
+                        func_spec = node_proto.functions.add()
+                        func_spec.name = func_name
+                    
+                    # Add health metrics if available
+                    if hasattr(node_info, 'health_metrics') and node_info.health_metrics:
+                        node_proto.current_load = getattr(node_info.health_metrics, 'cpu_usage', 0.0) / 100.0
+                        node_proto.last_heartbeat = int(time.time())  # Approximate
+                    
+                    response.nodes.append(node_proto)
+            
+            self.debug(f"Returning {len(response.nodes)} nodes to client '{request.client_id}'")
+            return response
+            
+        except Exception as e:
+            self.error(f"Error processing list nodes request: {e}", exc_info=True)
+            # Return empty response on error
+            return service_pb2.ListNodesResponse()
+    
+    async def GetNodeStatus(self, request, context):
+        """
+        Handle node status requests.
+        
+        Args:
+            request: NodeStatusRequest protobuf message
+            context: gRPC context
+            
+        Returns:
+            NodeStatusResponse protobuf message
+        """
+        try:
+            client_id = request.client_id
+            node_id = request.node_id
+            
+            self.debug(f"Processing node status request for '{node_id}' from client '{client_id}'")
+            
+            async with self._global_lock:
+                if node_id not in self._nodes:
+                    # Node not found - return error via gRPC status
+                    context.set_code(grpc.StatusCode.NOT_FOUND)
+                    context.set_details(f"Node '{node_id}' not found")
+                    return service_pb2.NodeStatusResponse()
+                
+                node_info = self._nodes[node_id]
+                
+                response = service_pb2.NodeStatusResponse()
+                response.node_id = node_id
+                response.status = node_info.status.value if hasattr(node_info.status, 'value') else str(node_info.status)
+                
+                # Add health metrics if available
+                if hasattr(node_info, 'health_metrics') and node_info.health_metrics:
+                    health = node_info.health_metrics
+                    response.cpu_usage = getattr(health, 'cpu_usage_percent', 0.0)
+                    response.memory_usage = getattr(health, 'memory_usage_percent', 0.0)
+                    response.gpu_usage = getattr(health, 'gpu_usage_percent', 0.0)
+                    response.current_load = response.cpu_usage / 100.0
+                    response.last_seen = int(time.time())
+                
+                # Add function names
+                for func_name in node_info.functions.keys():
+                    response.functions.append(func_name)
+                
+                response.health_score = 1.0 if node_info.is_alive() else 0.0
+                
+                self.debug(f"Returning status for node '{node_id}' to client '{client_id}'")
+                return response
+            
+        except Exception as e:
+            self.error(f"Error processing node status request: {e}", exc_info=True)
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(f"Internal error: {e}")
+            return service_pb2.NodeStatusResponse()
     
     async def ControlStream(self, request_iterator, context):
         """
@@ -1075,131 +1408,234 @@ class DistributedComputingGateway(service_pb2_grpc.RemoteServiceServicer, Modern
         try:
             self.debug("New control stream connection established")
             
-            async for control_message in request_iterator:
-                try:
-                    # Handle different types of control messages
-                    if control_message.HasField('register_req'):
-                        # Handle registration request
-                        register_req = control_message.register_req
-                        node_id = register_req.node_id
-                        
-                        self.info(f"Processing registration via control stream for node: {node_id}")
-                        
-                        # Create node info (simplified version for control stream)
-                        from ..data import FunctionInfo, FunctionType
-                        
-                        functions = {}
-                        for func_spec in register_req.functions:
-                            func_type = FunctionType.ASYNC if func_spec.is_async else FunctionType.SYNC
-                            if func_spec.is_generator:
-                                func_type = FunctionType.ASYNC_GENERATOR if func_spec.is_async else FunctionType.GENERATOR
-                            
-                            func_info = FunctionInfo(
-                                name=func_spec.name,
-                                function_type=func_type,
-                                node_id=node_id
-                            )
-                            functions[func_spec.name] = func_info
-                        
-                        # Register node
-                        async with self._global_lock:
-                            if node_id not in self._nodes:
-                                self._nodes[node_id] = NodeInfo(
-                                    node_id=node_id,
-                                    functions=functions,
-                                    status=NodeStatus.CONNECTED
-                                )
-                            else:
-                                # Update existing node
-                                self._nodes[node_id].functions.update(functions)
-                                self._nodes[node_id].update_heartbeat()
-                            
-                            # Create or update communication queue
-                            if node_id not in self._node_communication_queues:
-                                self._node_communication_queues[node_id] = asyncio.Queue(maxsize=self.max_queue_size)
-                            response_queue = self._node_communication_queues[node_id]
-                        
-                        # Send registration response
-                        response_msg = service_pb2.ControlMessage()
-                        response_msg.register_resp.success = True
-                        response_msg.register_resp.message = f"Node {node_id} registered via control stream"
-                        yield response_msg
-                        
-                        self.info(f"Node {node_id} registered via control stream with {len(functions)} functions")
-                    
-                    elif control_message.HasField('heartbeat_req'):
-                        # Handle heartbeat request
-                        heartbeat_req = control_message.heartbeat_req
-                        req_node_id = heartbeat_req.node_id
-                        
-                        async with self._global_lock:
-                            if req_node_id in self._nodes:
-                                self._nodes[req_node_id].update_heartbeat()
-                                accepted = True
-                                self.debug(f"Heartbeat received from {req_node_id} via control stream")
-                            else:
-                                accepted = False
-                                self.warning(f"Heartbeat from unregistered node {req_node_id} via control stream")
-                        
-                        # Send heartbeat response
-                        response_msg = service_pb2.ControlMessage()
-                        response_msg.heartbeat_resp.accepted = accepted
-                        yield response_msg
-                    
-                    elif control_message.HasField('exec_res'):
-                        # Handle execution result
-                        exec_result = control_message.exec_res
-                        call_id = exec_result.call_id
-                        
-                        self.debug(f"Received execution result for call {call_id} from node {node_id}")
-                        
-                        # Process execution result
-                        async with self._global_lock:
-                            if call_id in self._pending_function_calls:
-                                future_or_context = self._pending_function_calls[call_id]
-                                
-                                if isinstance(future_or_context, asyncio.Future):
-                                    # Single result
-                                    if exec_result.has_error:
-                                        error = RemoteExecutionError(exec_result.error_message)
-                                        future_or_context.set_exception(error)
-                                    else:
-                                        # Deserialize result
-                                        try:
-                                            result = self._serializer.deserialize(exec_result.result)
-                                            future_or_context.set_result(result)
-                                        except Exception as e:
-                                            future_or_context.set_exception(SerializationError(f"Failed to deserialize result: {e}"))
-                                    
-                                    # Clean up
-                                    del self._pending_function_calls[call_id]
-                                
-                                elif isinstance(future_or_context, dict):
-                                    # Stream result - add to queue
-                                    if 'response_queue' in future_or_context:
-                                        await future_or_context['response_queue'].put(exec_result)
-                        
-                        # Update metrics
-                        if self.metrics:
-                            success = not exec_result.has_error
-                            # Estimate response time (in production, this should be tracked properly)
-                            response_time = 1.0  # Placeholder
-                            self.metrics.update_request_stats(success, response_time)
-                    
-                    # Check for outgoing messages to send to this node
-                    if response_queue and node_id:
-                        try:
-                            # Non-blocking check for outgoing messages
-                            outgoing_message = response_queue.get_nowait()
-                            yield outgoing_message
-                        except asyncio.QueueEmpty:
-                            # No outgoing messages, continue
-                            pass
+            # Use a queue to coordinate between message handling and yielding
+            outgoing_queue = asyncio.Queue()
+            
+            async def process_incoming_messages():
+                """Process incoming messages from the node"""
+                nonlocal node_id, response_queue
                 
-                except Exception as e:
-                    self.error(f"Error processing control message from {node_id}: {e}", exc_info=True)
-                    # Continue processing other messages
-                    continue
+                async for control_message in request_iterator:
+                    try:
+                        # Handle different types of control messages
+                        if control_message.HasField('register_req'):
+                            # Handle registration request
+                            register_req = control_message.register_req
+                            node_id = register_req.node_id
+                            
+                            self.info(f"Processing registration via control stream for node: {node_id}")
+                            
+                            # Create node info (simplified version for control stream)
+                            from ..data import FunctionInfo, FunctionType
+                            
+                            functions = {}
+                            for func_spec in register_req.functions:
+                                func_type = FunctionType.ASYNC if func_spec.is_async else FunctionType.SYNC
+                                if func_spec.is_generator:
+                                    func_type = FunctionType.ASYNC_GENERATOR if func_spec.is_async else FunctionType.GENERATOR
+                                
+                                func_info = FunctionInfo(
+                                    name=func_spec.name,
+                                    function_type=func_type,
+                                    node_id=node_id
+                                )
+                                functions[func_spec.name] = func_info
+                            
+                            # Register node
+                            async with self._global_lock:
+                                if node_id not in self._nodes:
+                                    self._nodes[node_id] = NodeInfo(
+                                        node_id=node_id,
+                                        functions=functions,
+                                        status=NodeStatus.CONNECTED
+                                    )
+                                else:
+                                    # Update existing node
+                                    self._nodes[node_id].functions.update(functions)
+                                    self._nodes[node_id].update_heartbeat()
+                                
+                                # Create or update communication queue
+                                if node_id not in self._node_communication_queues:
+                                    self._node_communication_queues[node_id] = asyncio.Queue(maxsize=self.max_queue_size)
+                                response_queue = self._node_communication_queues[node_id]
+                            
+                            # Send registration response
+                            response_msg = service_pb2.ControlMessage()
+                            response_msg.register_resp.success = True
+                            response_msg.register_resp.message = f"Node {node_id} registered via control stream"
+                            await outgoing_queue.put(response_msg)
+                            
+                            self.info(f"Node {node_id} registered via control stream with {len(functions)} functions")
+                        
+                        elif control_message.HasField('heartbeat_req'):
+                            # Handle heartbeat request
+                            heartbeat_req = control_message.heartbeat_req
+                            req_node_id = heartbeat_req.node_id
+                            
+                            async with self._global_lock:
+                                if req_node_id in self._nodes:
+                                    self._nodes[req_node_id].update_heartbeat()
+                                    accepted = True
+                                    self.debug(f"Heartbeat received from {req_node_id} via control stream")
+                                else:
+                                    accepted = False
+                                    self.warning(f"Heartbeat from unregistered node {req_node_id} via control stream")
+                            
+                            # Send heartbeat response
+                            response_msg = service_pb2.ControlMessage()
+                            response_msg.heartbeat_resp.accepted = accepted
+                            await outgoing_queue.put(response_msg)
+                        
+                        elif control_message.HasField('exec_res'):
+                            # Handle execution result
+                            exec_result = control_message.exec_res
+                            call_id = exec_result.call_id
+                            
+                            self.info(f"📥 [RECV] ✅ RECEIVED execution result from node '{node_id}' for call {call_id}")
+                            
+                            if exec_result.has_error:
+                                self.error(f"💥 [RECV] ❌ Node '{node_id}' reported ERROR for call {call_id}: {exec_result.error_message}")
+                            else:
+                                self.info(f"🎉 [RECV] ✅ Node '{node_id}' completed call {call_id} successfully!")
+                            
+                            # Process execution result
+                            async with self._global_lock:
+                                if call_id in self._pending_function_calls:
+                                    future_or_context = self._pending_function_calls[call_id]
+                                    
+                                    if isinstance(future_or_context, asyncio.Future):
+                                        # Single result
+                                        if exec_result.has_error:
+                                            error = RemoteExecutionError(exec_result.error_message)
+                                            future_or_context.set_exception(error)
+                                            self.error(f"💥 [RECV] Setting exception for call {call_id}")
+                                        else:
+                                            # Deserialize result
+                                            try:
+                                                self.info(f"🔄 [RECV] Deserializing result from node '{node_id}'...")
+                                                result = self._serializer.deserialize_result(exec_result.result)
+                                                future_or_context.set_result(result)
+                                                self.info(f"✅ [RECV] Result deserialized and delivered for call {call_id}")
+                                            except Exception as e:
+                                                self.error(f"💥 [RECV] Failed to deserialize result: {e}")
+                                                future_or_context.set_exception(SerializationError(f"Failed to deserialize result: {e}"))
+                                        
+                                        # Clean up
+                                        del self._pending_function_calls[call_id]
+                                        self.info(f"🧹 [RECV] Cleaned up call {call_id} from pending calls")
+                                    
+                                    elif isinstance(future_or_context, dict):
+                                        # Stream result - add to queue
+                                        if 'response_queue' in future_or_context:
+                                            await future_or_context['response_queue'].put(exec_result)
+                                            self.info(f"📤 [RECV] Added stream result to queue for call {call_id}")
+                                else:
+                                    self.warning(f"⚠️ [RECV] Received result for unknown call {call_id} from node '{node_id}'")
+                            
+                            # Update metrics
+                            if self.metrics:
+                                success = not exec_result.has_error
+                                # Estimate response time (in production, this should be tracked properly)
+                                response_time = 1.0  # Placeholder
+                                self.metrics.update_request_stats(success, response_time)
+                    
+                    except Exception as e:
+                        self.error(f"Error processing control message from {node_id}: {e}", exc_info=True)
+                        # Continue processing other messages
+                        continue
+            
+            async def monitor_outgoing_messages():
+                """Monitor for outgoing execution requests"""
+                self.info(f"🔍 [CONTROL] Starting message monitor for node '{node_id}' - watching for function calls to send")
+                message_check_count = 0
+                
+                while True:
+                    try:
+                        message_check_count += 1
+                        
+                        if response_queue and node_id:
+                            queue_size = response_queue.qsize()
+                            
+                            # Log every 200 checks to avoid spam but still show activity
+                            if message_check_count % 200 == 0:
+                                self.debug(f"🔍 [CONTROL] Monitor check #{message_check_count} for node '{node_id}', queue size: {queue_size}")
+                            
+                            try:
+                                # Check for execution requests
+                                outgoing_message = await asyncio.wait_for(
+                                    response_queue.get(), 
+                                    timeout=0.1  # 100ms timeout
+                                )
+                                self.info(f"📨 [CONTROL] 🎯 FOUND MESSAGE for node '{node_id}'! Queue had {queue_size} messages")
+                                
+                                # Check what type of message it is
+                                if outgoing_message.HasField('exec_req'):
+                                    exec_req = outgoing_message.exec_req
+                                    self.info(f"🚀 [CONTROL] 📤 TRANSMITTING function call to node '{node_id}':")
+                                    self.info(f"   📋 Function: '{exec_req.function_name}'")
+                                    self.info(f"   🆔 Call ID: {exec_req.call_id}")
+                                    self.info(f"   📦 Args size: {len(exec_req.args)} bytes")
+                                    self.info(f"   📦 Kwargs size: {len(exec_req.kwargs)} bytes")
+                                else:
+                                    self.info(f"📨 [CONTROL] Sending control message to node '{node_id}' (non-execution)")
+                                
+                                await outgoing_queue.put(outgoing_message)
+                                self.info(f"✅ [CONTROL] 📡 MESSAGE TRANSMITTED to node '{node_id}' - node should receive it now!")
+                                
+                            except asyncio.TimeoutError:
+                                # No execution requests, continue monitoring
+                                pass
+                        else:
+                            if message_check_count % 200 == 0:
+                                self.debug(f"🔍 [CONTROL] Monitor check #{message_check_count}: waiting for node connection")
+                        
+                        # Small delay to avoid busy loop
+                        await asyncio.sleep(0.05)  # 50ms sleep
+                        
+                    except asyncio.CancelledError:
+                        self.info(f"🛑 [CONTROL] Message monitor stopped for node '{node_id}'")
+                        break
+                    except Exception as e:
+                        self.error(f"💥 [CONTROL] Error in message monitor for node '{node_id}': {e}")
+                        break
+            
+            # Start background tasks
+            incoming_task = asyncio.create_task(process_incoming_messages())
+            outgoing_task = asyncio.create_task(monitor_outgoing_messages())
+            
+            try:
+                # Main message yielding loop
+                while True:
+                    try:
+                        # Check if background tasks are still running
+                        if incoming_task.done() or outgoing_task.done():
+                            break
+                        
+                        # Wait for outgoing messages with timeout
+                        try:
+                            message = await asyncio.wait_for(outgoing_queue.get(), timeout=0.1)
+                            yield message
+                        except asyncio.TimeoutError:
+                            # No messages to send, continue
+                            continue
+                            
+                    except asyncio.CancelledError:
+                        break
+                    except Exception as e:
+                        self.error(f"Error in message yielding loop: {e}")
+                        break
+                        
+            finally:
+                # Clean up background tasks
+                if not incoming_task.done():
+                    incoming_task.cancel()
+                if not outgoing_task.done():
+                    outgoing_task.cancel()
+                
+                try:
+                    await asyncio.gather(incoming_task, outgoing_task, return_exceptions=True)
+                except Exception:
+                    pass
         
         except Exception as e:
             self.error(f"Error in control stream for node {node_id}: {e}", exc_info=True)
@@ -1210,7 +1646,7 @@ class DistributedComputingGateway(service_pb2_grpc.RemoteServiceServicer, Modern
                 # Note: We don't immediately remove the node as it might reconnect
                 # The health monitor will remove it if it doesn't reconnect in time
 
-    def execute_function(self, node_id: Optional[str], function_name: str, *args, **kwargs) -> Any:
+    async def execute_function(self, node_id: Optional[str], function_name: str, *args, **kwargs) -> Any:
         """
         Execute a function on a specific node or any available node.
         
@@ -1265,23 +1701,8 @@ class DistributedComputingGateway(service_pb2_grpc.RemoteServiceServicer, Modern
             )
         
         try:
-            # Run the async execution in the current event loop if available,
-            # otherwise create a new one
-            try:
-                loop = asyncio.get_running_loop()
-                # We're in an async context, use run_until_complete is not allowed
-                # We need to create a task or use await (but this is a sync method)
-                # For now, let's use a different approach
-                future = asyncio.run_coroutine_threadsafe(
-                    self._async_execute_function(node_id, function_name, args, kwargs),
-                    loop
-                )
-                return future.result(timeout=300)  # 5 minute timeout
-            except RuntimeError:
-                # No running loop, create a new one
-                return asyncio.run(
-                    self._async_execute_function(node_id, function_name, args, kwargs)
-                )
+            # Execute the function asynchronously
+            return await self._async_execute_function(node_id, function_name, args, kwargs)
                 
         except Exception as e:
             self.error(f"Failed to execute function '{function_name}' on node '{node_id}': {e}")
@@ -1307,10 +1728,14 @@ class DistributedComputingGateway(service_pb2_grpc.RemoteServiceServicer, Modern
         # Generate unique call ID
         call_id = str(uuid.uuid4())
         
+        self.info(f"🚀 [SEND] SENDING function call to node '{node_id}': function='{function_name}', call_id={call_id}")
+        self.info(f"📦 [SEND] Function arguments: args={len(args)} items, kwargs={len(kwargs)} items")
+        
         try:
             # Serialize arguments
-            serialized_args = self._serializer.serialize(args)
-            serialized_kwargs = self._serializer.serialize(kwargs)
+            self.info(f"🔄 [SEND] Serializing arguments for transmission...")
+            serialized_args, serialized_kwargs = self._serializer.serialize_args(*args, **kwargs)
+            self.info(f"✅ [SEND] Arguments serialized successfully")
             
             # Create execution request
             exec_request = service_pb2.ExecutionRequest()
@@ -1323,20 +1748,29 @@ class DistributedComputingGateway(service_pb2_grpc.RemoteServiceServicer, Modern
             control_msg = service_pb2.ControlMessage()
             control_msg.exec_req.CopyFrom(exec_request)
             
+            self.info(f"📋 [SEND] Created execution request message for node '{node_id}'")
+            
             # Create future to wait for result
             result_future = asyncio.Future()
             
             # Store the future for result processing
             async with self._global_lock:
                 self._pending_function_calls[call_id] = result_future
+                self.info(f"💾 [SEND] Registered call {call_id} for result tracking")
                 
                 # Send execution request to node
                 if node_id in self._node_communication_queues:
+                    queue_size_before = self._node_communication_queues[node_id].qsize()
                     await self._node_communication_queues[node_id].put(control_msg)
+                    queue_size_after = self._node_communication_queues[node_id].qsize()
+                    self.info(f"📤 [SEND] ✅ MESSAGE SENT to node '{node_id}' communication queue!")
+                    self.info(f"📊 [SEND] Queue status: before={queue_size_before}, after={queue_size_after}")
+                    self.info(f"🎯 [SEND] Node '{node_id}' should now receive and process function '{function_name}'")
                 else:
+                    self.error(f"❌ [SEND] FAILED! No communication channel available for node '{node_id}'")
                     raise RemoteExecutionError(f"No communication channel available for node {node_id}")
             
-            self.debug(f"Sent execution request {call_id} to node {node_id}")
+            self.info(f"⏳ [WAIT] Waiting for result from node '{node_id}' for call {call_id}...")
             
             # Wait for result with timeout
             try:
@@ -1350,7 +1784,8 @@ class DistributedComputingGateway(service_pb2_grpc.RemoteServiceServicer, Modern
                         if func_info:
                             func_info.update_call_statistics(1.0)  # Placeholder execution time
                 
-                self.debug(f"Received result for call {call_id} from node {node_id}")
+                self.info(f"🎉 [RECV] ✅ SUCCESS! Received result from node '{node_id}' for call {call_id}")
+                self.info(f"📥 [RECV] Function '{function_name}' executed successfully on node '{node_id}'")
                 return result
                 
             except asyncio.TimeoutError:
@@ -1358,6 +1793,7 @@ class DistributedComputingGateway(service_pb2_grpc.RemoteServiceServicer, Modern
                 async with self._global_lock:
                     self._pending_function_calls.pop(call_id, None)
                 
+                self.error(f"⏰ [WAIT] ❌ TIMEOUT! No response from node '{node_id}' for function '{function_name}' (call {call_id})")
                 raise TimeoutError(f"Function '{function_name}' execution timed out on node '{node_id}'")
                 
         except Exception as e:
@@ -1367,10 +1803,10 @@ class DistributedComputingGateway(service_pb2_grpc.RemoteServiceServicer, Modern
                 if node_id in self._nodes:
                     self._nodes[node_id].increment_error_count()
             
-            self.error(f"Error executing function '{function_name}' on node '{node_id}': {e}")
+            self.error(f"💥 [SEND] ❌ ERROR sending function '{function_name}' to node '{node_id}' (call {call_id}): {e}")
             raise RemoteExecutionError(f"Function execution failed: {e}") from e
     
-    def execute_function_with_load_balancing(self, function_name: str, 
+    async def execute_function_with_load_balancing(self, function_name: str, 
                                            load_balancing_config: Union[bool, str, dict], 
                                            *args, **kwargs) -> Any:
         """
@@ -1405,9 +1841,7 @@ class DistributedComputingGateway(service_pb2_grpc.RemoteServiceServicer, Modern
         try:
             # Create request context for load balancer
             request_context = RequestContext(
-                function_name=function_name,
-                args=args,
-                kwargs=kwargs
+                function_name=function_name
             )
             
             # Select optimal node using load balancer
@@ -1423,7 +1857,7 @@ class DistributedComputingGateway(service_pb2_grpc.RemoteServiceServicer, Modern
             self.info(f"Load balancer selected node '{selected_node}' for function '{function_name}'")
             
             # Execute on the selected node using the new implementation
-            return self.execute_function(selected_node, function_name, *args, **kwargs)
+            return await self.execute_function(selected_node, function_name, *args, **kwargs)
             
         except Exception as e:
             self.error(f"Load balanced execution failed for function '{function_name}': {e}")
@@ -1532,6 +1966,7 @@ class GatewayServerBuilder:
         self._enable_security: bool = False
         self._enable_clustering: bool = False
         self._cleanup_interval_seconds: float = 300.0
+        self._log_level: str = "info"
     
     def with_port(self, port: int) -> 'GatewayServerBuilder':
         """Set server port."""
@@ -1573,6 +2008,11 @@ class GatewayServerBuilder:
         self._cleanup_interval_seconds = seconds
         return self
     
+    def with_log_level(self, level: str) -> 'GatewayServerBuilder':
+        """Set logging level."""
+        self._log_level = level
+        return self
+    
     def build(self) -> DistributedComputingGateway:
         """
         Build and return configured gateway server instance.
@@ -1592,7 +2032,8 @@ class GatewayServerBuilder:
             enable_analytics=self._enable_analytics,
             enable_security=self._enable_security,
             enable_clustering=self._enable_clustering,
-            cleanup_interval_seconds=self._cleanup_interval_seconds
+            cleanup_interval_seconds=self._cleanup_interval_seconds,
+            log_level=self._log_level
         )
 
 

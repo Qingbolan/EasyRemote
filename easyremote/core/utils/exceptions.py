@@ -385,17 +385,20 @@ class ConnectionError(EasyRemoteError):
         Initialize ConnectionError with connection-specific information.
         
         Args:
+            message: The error message to display
             address: The address that failed to connect
             port: The port number (if applicable)
             timeout: Connection timeout value used
             cause: The underlying network exception
         """
-        if port:
-            full_address = f"{address}:{port}"
-        else:
-            full_address = address
-        
-        message = f"Failed to connect to {full_address}"
+        # Don't overwrite the passed message
+        # If no specific message provided, create a default one
+        if not message and address:
+            if port:
+                full_address = f"{address}:{port}"
+            else:
+                full_address = address
+            message = f"Failed to connect to {full_address}"
         
         # Prepare additional context
         additional_data = {'address': address}
