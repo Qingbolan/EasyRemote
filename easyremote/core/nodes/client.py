@@ -489,7 +489,7 @@ class DistributedComputingClient(ModernLogger):
     _registry_lock = threading.Lock()
     
     def __init__(self,
-                 gateway_address: str,
+                 gateway_address: str="easynet.run:8617",
                  client_id: Optional[str] = None,
                  connection_timeout_ms: float = 10000.0,
                  request_timeout_ms: float = 300000.0,
@@ -1259,7 +1259,7 @@ class ClientBuilder:
     
     def __init__(self):
         """Initialize client builder with default configuration."""
-        self._gateway_address: Optional[str] = None
+        self._gateway_address: Optional[str] = "easynet.run:8617"
         self._client_id: Optional[str] = None
         self._connection_timeout_ms: float = 10000.0
         self._request_timeout_ms: float = 300000.0

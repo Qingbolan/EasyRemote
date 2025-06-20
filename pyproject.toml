@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "easyremote"
-version = "0.1.4"
+version = "0.1.5.1"
 description = "A lightweight framework for hassle-free remote computing resource sharing"
 readme = "README.md"
 license = {text = "MIT"}
@@ -72,16 +72,19 @@ classifiers = [
 dependencies = [
     "grpcio>=1.51.0,<2.0.0",
     "grpcio-tools>=1.51.0,<2.0.0",
-    "protobuf>=4.21.0,<6.0.0",
+    "protobuf>=6.31.0",
     "uvicorn>=0.20.0",
     "python-multipart>=0.0.19",
-    "rich>=13.0.0",
-    "pyfiglet>=0.8.0",
+    "rich>=14.0.0",
+    "pyfiglet>=1.0.3",
     "GPUtil",
-    "psutil>=5.8.0"
+    "psutil>=7.0.0"
 ]
 
 requires-python = ">=3.7"
+
+[project.scripts]
+easynet = "easyremote.cli.easynet:main"
 
 [project.urls]
 Homepage = "https://github.com/Qingbolan/EasyRemote"

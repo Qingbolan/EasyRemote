@@ -1947,7 +1947,7 @@ class GatewayServerBuilder:
     
     Example:
         >>> server = GatewayServerBuilder() \
-        ...     .with_port(8080) \
+        ...     .with_port(8617) \
         ...     .with_load_balancing_strategy("ml_enhanced") \
         ...     .enable_health_monitoring() \
         ...     .enable_performance_analytics() \
@@ -1957,7 +1957,7 @@ class GatewayServerBuilder:
     
     def __init__(self):
         """Initialize builder with default configuration."""
-        self._port: int = 8080
+        self._port: int = 8617
         self._heartbeat_timeout_seconds: float = 30.0
         self._max_queue_size: int = 5000
         self._max_workers: int = 20

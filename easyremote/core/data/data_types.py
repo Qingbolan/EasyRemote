@@ -48,6 +48,8 @@ class FunctionType(Enum):
     ASYNC = "asynchronous"
     GENERATOR = "generator"
     ASYNC_GENERATOR = "async_generator"
+    STREAM = "stream"  # For streaming functions (generators)
+    ASYNC_STREAM = "async_stream"  # For async streaming functions (async generators)
 
 
 @dataclass(frozen=True)
@@ -124,12 +126,17 @@ class FunctionInfo:
     @property
     def is_async(self) -> bool:
         """Check if function is asynchronous (legacy compatibility)."""
-        return self.function_type in (FunctionType.ASYNC, FunctionType.ASYNC_GENERATOR)
+        return self.function_type in (FunctionType.ASYNC, FunctionType.ASYNC_GENERATOR, FunctionType.ASYNC_STREAM)
     
     @property
     def is_generator(self) -> bool:
         """Check if function is a generator (legacy compatibility)."""
-        return self.function_type in (FunctionType.GENERATOR, FunctionType.ASYNC_GENERATOR)
+        return self.function_type in (FunctionType.GENERATOR, FunctionType.ASYNC_GENERATOR, FunctionType.STREAM, FunctionType.ASYNC_STREAM)
+    
+    @property
+    def is_streaming(self) -> bool:
+        """Check if function is a streaming function."""
+        return self.function_type in (FunctionType.STREAM, FunctionType.ASYNC_STREAM, FunctionType.GENERATOR, FunctionType.ASYNC_GENERATOR)
     
     def update_call_statistics(self, execution_time: float):
         """

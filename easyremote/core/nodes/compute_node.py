@@ -650,7 +650,7 @@ class DistributedComputeNode(ModernLogger):
     _registry_lock = threading.Lock()
     
     def __init__(self, 
-                 gateway_address: str,
+                 gateway_address: str="easynet.run:8617",
                  node_id: Optional[str] = None,
                  config: Optional[NodeConfiguration] = None,
                  log_level: str = "info"):
@@ -717,7 +717,8 @@ class DistributedComputeNode(ModernLogger):
         self._gateway_channel: Optional[grpc.aio.Channel] = None
         self._gateway_stub: Optional[service_pb2_grpc.RemoteServiceStub] = None
         self._communication_stream: Optional[Any] = None
-        self._outgoing_messages: asyncio.Queue = asyncio.Queue(maxsize=1000)  # For sending results back to server
+        # Note: asyncio objects should be created within the event loop context
+        self._outgoing_messages: Optional[asyncio.Queue] = None  # Will be created in event loop
         
         # Background tasks and lifecycle management
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
@@ -725,7 +726,7 @@ class DistributedComputeNode(ModernLogger):
         self._heartbeat_task: Optional[asyncio.Task] = None
         self._health_monitor_task: Optional[asyncio.Task] = None
         self._resource_monitor_task: Optional[asyncio.Task] = None
-        self._shutdown_event = asyncio.Event()
+        self._shutdown_event: Optional[asyncio.Event] = None  # Will be created in event loop
         self._connection_event = threading.Event()
         
         # Resource management and monitoring
@@ -840,7 +841,8 @@ class DistributedComputeNode(ModernLogger):
                 version: str = "1.0.0",
                 enable_caching: bool = True,
                 cache_ttl_seconds: Optional[float] = None,
-                execution_mode: ExecutionMode = ExecutionMode.NORMAL) -> Union[Callable, Callable[[Callable], Callable]]:
+                execution_mode: ExecutionMode = ExecutionMode.NORMAL,
+                stream: bool = False) -> Union[Callable, Callable[[Callable], Callable]]:
         """
         Register a function for remote execution with comprehensive configuration.
         
@@ -862,6 +864,7 @@ class DistributedComputeNode(ModernLogger):
             enable_caching: Enable result caching for this function
             cache_ttl_seconds: Cache time-to-live in seconds
             execution_mode: Execution mode for performance optimization
+            stream: Force function to be treated as streaming (generator/async generator)
             
         Returns:
             Registered function or decorator
@@ -896,14 +899,31 @@ class DistributedComputeNode(ModernLogger):
             
             # Determine function type
             if function_type is None:
-                if func_analysis.is_async and func_analysis.is_generator:
-                    detected_type = FunctionType.ASYNC_GENERATOR
-                elif func_analysis.is_async:
-                    detected_type = FunctionType.ASYNC
-                elif func_analysis.is_generator:
-                    detected_type = FunctionType.GENERATOR
+                if stream:
+                    # Force streaming type based on function characteristics
+                    if func_analysis.is_async_generator:
+                        detected_type = FunctionType.ASYNC_STREAM
+                    elif func_analysis.is_async and func_analysis.is_generator:
+                        detected_type = FunctionType.ASYNC_STREAM
+                    elif func_analysis.is_async:
+                        detected_type = FunctionType.ASYNC_STREAM
+                    elif func_analysis.is_generator:
+                        detected_type = FunctionType.STREAM
+                    else:
+                        # If stream=True but function is not a generator, treat as sync stream
+                        detected_type = FunctionType.STREAM
                 else:
-                    detected_type = FunctionType.SYNC
+                    # Auto-detect based on function characteristics
+                    if func_analysis.is_async_generator:
+                        detected_type = FunctionType.ASYNC_GENERATOR
+                    elif func_analysis.is_async and func_analysis.is_generator:
+                        detected_type = FunctionType.ASYNC_GENERATOR
+                    elif func_analysis.is_async:
+                        detected_type = FunctionType.ASYNC
+                    elif func_analysis.is_generator:
+                        detected_type = FunctionType.GENERATOR
+                    else:
+                        detected_type = FunctionType.SYNC
             else:
                 detected_type = function_type
             
@@ -1102,6 +1122,10 @@ class DistributedComputeNode(ModernLogger):
         Asynchronous service loop with comprehensive lifecycle management.
         """
         try:
+            # Initialize asyncio objects in the correct event loop context
+            self._shutdown_event = asyncio.Event()
+            self._outgoing_messages = asyncio.Queue(maxsize=1000)
+            
             await self._set_connection_state(NodeConnectionState.INITIALIZING)
             
             # Start background monitoring tasks
@@ -1142,7 +1166,7 @@ class DistributedComputeNode(ModernLogger):
         reconnect_interval = self.config.reconnect_interval_seconds
         max_interval = self.config.reconnect_max_interval_seconds
         
-        while not self._shutdown_event.is_set():
+        while self._shutdown_event and not self._shutdown_event.is_set():
             try:
                 # Attempt to connect and serve
                 await self._connect_and_serve()
@@ -1274,8 +1298,14 @@ class DistributedComputeNode(ModernLogger):
         for func_name, registration in self._registered_functions.items():
             func_proto = node_proto.functions.add()
             func_proto.name = func_name
-            func_proto.is_async = registration.function_info.function_type in (FunctionType.ASYNC, FunctionType.ASYNC_GENERATOR)
-            func_proto.is_generator = registration.function_info.function_type in (FunctionType.GENERATOR, FunctionType.ASYNC_GENERATOR)
+            func_proto.is_async = registration.function_info.function_type in (
+                FunctionType.ASYNC, FunctionType.ASYNC_GENERATOR, 
+                FunctionType.ASYNC_STREAM
+            )
+            func_proto.is_generator = registration.function_info.function_type in (
+                FunctionType.GENERATOR, FunctionType.ASYNC_GENERATOR,
+                FunctionType.STREAM, FunctionType.ASYNC_STREAM
+            )
         
         # Add resource information
         node_proto.max_concurrent_executions = self.config.max_concurrent_executions
@@ -1286,7 +1316,7 @@ class DistributedComputeNode(ModernLogger):
     async def _heartbeat_loop(self):
         """Maintain heartbeat with gateway."""
         heartbeat_count = 0
-        while not self._shutdown_event.is_set():
+        while self._shutdown_event and not self._shutdown_event.is_set():
             try:
                 heartbeat_count += 1
                 
@@ -1362,8 +1392,13 @@ class DistributedComputeNode(ModernLogger):
         for func_name, registration in self._registered_functions.items():
             func_spec = register_req.functions.add()
             func_spec.name = func_name
-            func_spec.is_async = registration.function_info.function_type in (FunctionType.ASYNC, FunctionType.ASYNC_GENERATOR)
-            func_spec.is_generator = registration.function_info.function_type in (FunctionType.GENERATOR, FunctionType.ASYNC_GENERATOR)
+            func_spec.is_async = registration.function_info.function_type in (
+                FunctionType.ASYNC, FunctionType.ASYNC_GENERATOR, FunctionType.ASYNC_STREAM
+            )
+            func_spec.is_generator = registration.function_info.function_type in (
+                FunctionType.GENERATOR, FunctionType.ASYNC_GENERATOR, 
+                FunctionType.STREAM, FunctionType.ASYNC_STREAM
+            )
         
         # Send initial registration
         control_msg = service_pb2.ControlMessage()
@@ -1374,7 +1409,7 @@ class DistributedComputeNode(ModernLogger):
         last_heartbeat = time.time()
         heartbeat_interval = self.config.heartbeat_interval_seconds
         
-        while not self._shutdown_event.is_set():
+        while self._shutdown_event and not self._shutdown_event.is_set():
             try:
                 # Check for outgoing messages (execution results) first
                 try:
@@ -1482,7 +1517,32 @@ class DistributedComputeNode(ModernLogger):
             
             # Execute function
             try:
-                if registration.function_info.function_type in (FunctionType.ASYNC, FunctionType.ASYNC_GENERATOR):
+                func_type = registration.function_info.function_type
+                
+                if func_type in (FunctionType.STREAM, FunctionType.ASYNC_STREAM, 
+                               FunctionType.GENERATOR, FunctionType.ASYNC_GENERATOR):
+                    # Handle streaming functions
+                    self.debug(f"🌊 [NODE-EXEC] Running streaming function {function_name} (type: {func_type.value})")
+                    
+                    if func_type in (FunctionType.ASYNC_STREAM, FunctionType.ASYNC_GENERATOR):
+                        # Async generator - collect all results
+                        async_gen = func(*args, **kwargs)
+                        result = []
+                        async for item in async_gen:
+                            result.append(item)
+                            self.debug(f"🌊 [NODE-EXEC] Collected streaming item from {function_name}")
+                    else:
+                        # Sync generator - run in thread pool and collect results
+                        def collect_generator():
+                            gen = func(*args, **kwargs)
+                            return list(gen)
+                        
+                        loop = asyncio.get_running_loop()
+                        result = await loop.run_in_executor(self._thread_executor, collect_generator)
+                    
+                    self.debug(f"🌊 [NODE-EXEC] Collected {len(result)} items from streaming function {function_name}")
+                    
+                elif func_type in (FunctionType.ASYNC, FunctionType.ASYNC_GENERATOR):
                     self.debug(f"⚡ [NODE-EXEC] Running async function {function_name}")
                     result = await func(*args, **kwargs)
                 else:
@@ -1538,7 +1598,7 @@ class DistributedComputeNode(ModernLogger):
             
             # Note: In a real implementation, we'd need to send this back through the control stream
             # For now, we'll store it in a queue that the control stream generator can pick up
-            if hasattr(self, '_outgoing_messages'):
+            if self._outgoing_messages:
                 await self._outgoing_messages.put(control_msg)
                 self.info(f"✅ [NODE-EXEC] Result queued for transmission to server")
             else:
@@ -1553,7 +1613,7 @@ class DistributedComputeNode(ModernLogger):
     
     async def _resource_monitoring_loop(self):
         """Background resource monitoring loop."""
-        while not self._shutdown_event.is_set():
+        while self._shutdown_event and not self._shutdown_event.is_set():
             try:
                 # Get current resource usage
                 resource_usage = self._resource_monitor.get_current_usage()
@@ -1573,7 +1633,7 @@ class DistributedComputeNode(ModernLogger):
     
     async def _health_monitoring_loop(self):
         """Background health monitoring loop."""
-        while not self._shutdown_event.is_set():
+        while self._shutdown_event and not self._shutdown_event.is_set():
             try:
                 # Update health metrics
                 if self._node_metrics:
@@ -1624,7 +1684,7 @@ class DistributedComputeNode(ModernLogger):
         self.info("Initiating graceful shutdown")
         
         # Signal shutdown
-        if self._event_loop and not self._event_loop.is_closed():
+        if self._event_loop and not self._event_loop.is_closed() and self._shutdown_event:
             self._event_loop.call_soon_threadsafe(self._shutdown_event.set)
         
         # Wait for shutdown with timeout
